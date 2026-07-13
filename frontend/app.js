@@ -1,0 +1,258 @@
+// harag PDF RAG MVP — 프론트엔드 로직
+const API = ""; // 같은 오리진(FastAPI가 정적 서빙)
+
+// ── 세션(소유자) ID: 브라우저별 고정 → 본인 문서만 조회 ──
+function ownerId() {
+  let id = localStorage.getItem("harag_owner");
+  if (!id) {
+    id = "u-" + Math.random().toString(36).slice(2, 10) +
+      Date.now().toString(36).slice(-4);
+    localStorage.setItem("harag_owner", id);
+  }
+  return id;
+}
+const OWNER = ownerId();
+
+function headers(extra) {
+  return Object.assign({ "X-Owner-Id": OWNER }, extra || {});
+}
+
+// ── DOM ──
+const dropzone = document.getElementById("dropzone");
+const fileInput = document.getElementById("fileInput");
+const docList = document.getElementById("docList");
+const messages = document.getElementById("messages");
+const emptyState = document.getElementById("emptyState");
+const composer = document.getElementById("composer");
+const queryInput = document.getElementById("queryInput");
+const sendBtn = document.getElementById("sendBtn");
+document.getElementById("ownerId").textContent = OWNER;
+
+// ── 토스트 ──
+function toast(msg) {
+  const t = document.createElement("div");
+  t.className = "toast";
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 3200);
+}
+
+// ── 업로드 ──
+dropzone.addEventListener("click", () => fileInput.click());
+fileInput.addEventListener("change", () => {
+  if (fileInput.files.length) uploadFile(fileInput.files[0]);
+  fileInput.value = "";
+});
+["dragover", "dragenter"].forEach((ev) =>
+  dropzone.addEventListener(ev, (e) => {
+    e.preventDefault();
+    dropzone.classList.add("drag");
+  })
+);
+["dragleave", "drop"].forEach((ev) =>
+  dropzone.addEventListener(ev, (e) => {
+    e.preventDefault();
+    dropzone.classList.remove("drag");
+  })
+);
+dropzone.addEventListener("drop", (e) => {
+  const f = e.dataTransfer.files[0];
+  if (f) uploadFile(f);
+});
+
+async function uploadFile(file) {
+  if (!file.name.toLowerCase().endsWith(".pdf")) {
+    toast("PDF 파일만 업로드할 수 있습니다.");
+    return;
+  }
+  const form = new FormData();
+  form.append("file", file);
+  try {
+    const res = await fetch(`${API}/v1/documents`, {
+      method: "POST",
+      headers: headers(),
+      body: form,
+    });
+    if (!res.ok) throw new Error("upload " + res.status);
+    const data = await res.json();
+    toast(
+      data.status === "duplicate"
+        ? "이미 업로드된 문서입니다."
+        : `업로드됨: ${file.name} — 처리 중…`
+    );
+    refreshDocs();
+    pollDoc(data.document_id);
+  } catch (err) {
+    toast("업로드 실패: " + err.message);
+  }
+}
+
+async function pollDoc(id, tries = 0) {
+  if (tries > 60) return;
+  try {
+    const res = await fetch(`${API}/v1/documents/${id}`, { headers: headers() });
+    if (!res.ok) return;
+    const d = await res.json();
+    refreshDocs();
+    if (d.status === "processing") {
+      setTimeout(() => pollDoc(id, tries + 1), 1500);
+    } else if (d.status === "ready") {
+      toast(`준비 완료: ${d.filename} (${d.n_chunks}개 청크)`);
+    } else if (d.status === "failed") {
+      toast(`처리 실패: ${d.filename} — ${d.error || ""}`);
+    }
+  } catch (_) {}
+}
+
+async function refreshDocs() {
+  try {
+    const res = await fetch(`${API}/v1/documents`, { headers: headers() });
+    if (!res.ok) return;
+    const docs = await res.json();
+    docList.innerHTML = "";
+    docs.forEach((d) => {
+      const li = document.createElement("li");
+      li.className = "doc-item";
+      li.innerHTML = `
+        <span class="doc-name" title="${escapeHtml(d.filename)}">${escapeHtml(d.filename)}</span>
+        <span class="doc-meta">
+          <span class="badge ${d.status}">${statusLabel(d.status)}</span>
+          ${d.status === "ready" ? `<span>${d.n_chunks} 청크</span>` : ""}
+          ${d.error ? `<span title="${escapeHtml(d.error)}">⚠</span>` : ""}
+        </span>`;
+      docList.appendChild(li);
+    });
+  } catch (_) {}
+}
+
+function statusLabel(s) {
+  return { processing: "처리중", ready: "준비됨", failed: "실패" }[s] || s;
+}
+
+// ── 채팅 ──
+queryInput.addEventListener("input", () => {
+  queryInput.style.height = "auto";
+  queryInput.style.height = Math.min(queryInput.scrollHeight, 160) + "px";
+});
+queryInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    composer.requestSubmit();
+  }
+});
+
+composer.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const q = queryInput.value.trim();
+  if (!q) return;
+  queryInput.value = "";
+  queryInput.style.height = "auto";
+  addMessage("user", q);
+  await streamAnswer(q);
+});
+
+function addMessage(role, text) {
+  if (emptyState) emptyState.style.display = "none";
+  const wrap = document.createElement("div");
+  wrap.className = "msg " + role;
+  const bubble = document.createElement("div");
+  bubble.className = "bubble";
+  bubble.textContent = text;
+  wrap.appendChild(bubble);
+  messages.appendChild(wrap);
+  messages.scrollTop = messages.scrollHeight;
+  return { wrap, bubble };
+}
+
+async function streamAnswer(query) {
+  sendBtn.disabled = true;
+  const { wrap, bubble } = addMessage("bot", "");
+  bubble.classList.add("thinking");
+  bubble.textContent = "검색 중…";
+  let answer = "";
+  let started = false;
+
+  try {
+    const res = await fetch(`${API}/v1/query/stream`, {
+      method: "POST",
+      headers: headers({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ query }),
+    });
+    if (!res.ok || !res.body) throw new Error("query " + res.status);
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const parts = buffer.split("\n\n");
+      buffer = parts.pop();
+      for (const part of parts) {
+        const line = part.trim();
+        if (!line.startsWith("data:")) continue;
+        const evt = JSON.parse(line.slice(5).trim());
+        handleEvent(evt);
+      }
+    }
+
+    function handleEvent(evt) {
+      if (evt.kind === "token") {
+        if (!started) {
+          bubble.classList.remove("thinking");
+          bubble.textContent = "";
+          started = true;
+        }
+        answer += evt.data;
+        bubble.textContent = answer;
+      } else if (evt.kind === "abstain") {
+        bubble.classList.remove("thinking");
+        bubble.classList.add("abstain");
+        bubble.textContent = abstainMessage(evt.data);
+      } else if (evt.kind === "citations") {
+        renderCitations(wrap, evt.data);
+      }
+      messages.scrollTop = messages.scrollHeight;
+    }
+  } catch (err) {
+    bubble.classList.remove("thinking");
+    bubble.classList.add("abstain");
+    bubble.textContent = "오류가 발생했습니다: " + err.message;
+  } finally {
+    sendBtn.disabled = false;
+  }
+}
+
+function abstainMessage(reason) {
+  if (reason === "empty_context" || reason === "low_score")
+    return "업로드한 문서에서 근거를 찾지 못했습니다. (지어내지 않고 답변을 보류합니다)";
+  if ((reason || "").startsWith("fabricated_citation"))
+    return "답변 검증에 실패하여 응답을 보류합니다.";
+  return "답변을 제공할 수 없습니다: " + (reason || "unknown");
+}
+
+function renderCitations(wrap, data) {
+  if (!data) return;
+  const labels = data.split(";").map((s) => s.trim()).filter(Boolean);
+  if (!labels.length) return;
+  const box = document.createElement("div");
+  box.className = "citations";
+  labels.forEach((l) => {
+    const chip = document.createElement("span");
+    chip.className = "cite";
+    chip.textContent = "📎 " + l;
+    box.appendChild(chip);
+  });
+  wrap.appendChild(box);
+}
+
+function escapeHtml(s) {
+  return (s || "").replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])
+  );
+}
+
+// 초기 로드
+refreshDocs();

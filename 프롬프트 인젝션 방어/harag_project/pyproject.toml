@@ -1,0 +1,69 @@
+[project]
+name = "harag"
+version = "0.1.0"
+description = "한글 행정문서 RAG 챗봇 — Hangul Administrative RAG"
+requires-python = ">=3.12"
+
+# 핵심 런타임 의존성 (코드 설계서 §7 스택)
+dependencies = [
+    "pydantic>=2.0",          # 스키마·계약 (B-1)
+    "fastapi>=0.110",         # API 게이트웨이 (§2)
+    "uvicorn[standard]>=0.27", # ASGI 서버
+    "qdrant-client>=1.18",    # 벡터DB (확정)
+    "httpx>=0.27",            # 외부 LLM API 호출 (async)
+    "python-multipart>=0.0.9", # 파일 업로드(UploadFile)
+    "sqlalchemy>=2.0",        # PostgreSQL ORM (운영 메타)
+    "psycopg[binary]>=3.1",   # PostgreSQL 드라이버
+    "boto3>=1.34",            # S3 호환 오브젝트 스토리지 (원본 보존)
+    # 형태소 분석 (한국어 BM25, FR-5) — Kiwi 우선
+    "kiwipiepy>=0.17",
+    # 토큰 카운팅 (타깃 LLM 토크나이저, FR-3)
+    "tiktoken>=0.6",
+]
+
+[project.optional-dependencies]
+# GPU 추론은 별도 서비스(embedding-server/reranker-server)로 분리되므로
+# 앱 의존성에는 무거운 ML 스택을 넣지 않는다. 추론 서버 이미지에서만 설치.
+ml = [
+    "sentence-transformers>=2.6",  # self-host 임베딩/리랭커 (추론 서버용)
+    "torch>=2.2",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.3",               # 린터+포매터
+    "mypy>=1.9",               # 정적 타입 검사
+]
+# 파싱: PoC 후 확정(코드 설계서 §1.3). 후보를 optional로 둔다.
+parsing = [
+    "olefile>=0.47",           # HWP 5.0 바이너리 컨테이너
+    # "pyhwp", "hwp5" 등은 PoC에서 표 복원율 검증 후 추가
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/harag"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+markers = [
+    "contract: 설계 불변식 계약 테스트(구현 무관, 항상 초록)",
+    "behavior: 동작 테스트(구현을 이끔)",
+    "integration: 외부 의존성(Qdrant 등) 필요",
+    "gpu: GPU 추론 서버 필요(CI 분리)",
+    "load: 부하/성능 테스트(야간 배치)",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+# 외부 라이브러리 스텁 부재 허용
+ignore_missing_imports = true

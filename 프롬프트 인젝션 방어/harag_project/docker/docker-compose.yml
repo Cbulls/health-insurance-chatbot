@@ -1,0 +1,76 @@
+# 로컬 개발용 구성. 코드 설계서 §5.2 컨테이너 구성 반영.
+# 외부 LLM은 API라 여기 없음(네트워크 경계 밖). 운영은 K8s/관리형으로.
+
+services:
+  # ── 읽기 경로 ──
+  api-gateway:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.app
+    environment:
+      HARAG_ROLE: api
+      HARAG_QDRANT_URL: http://qdrant:6333
+      HARAG_POSTGRES_DSN: postgresql://harag:harag@postgres/harag
+      HARAG_EMBEDDING_SERVER_URL: http://embedding-server:80
+      HARAG_RERANKER_SERVER_URL: http://reranker-server:80
+    ports: ["8000:8000"]
+    depends_on: [qdrant, postgres]
+
+  # ── 쓰기 경로 (인덱싱 워커, NFR-2 격리) ──
+  indexing-worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.app
+    environment:
+      HARAG_ROLE: indexing
+      HARAG_QDRANT_URL: http://qdrant:6333
+      HARAG_POSTGRES_DSN: postgresql://harag:harag@postgres/harag
+    depends_on: [qdrant, postgres]
+    command: ["python", "-m", "harag.indexing.worker"]
+
+  # ── GPU 추론 (로컬은 CPU 폴백; 운영은 GPU 노드) ──
+  embedding-server:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.inference
+    environment:
+      HARAG_ROLE: embedding
+      # HARAG_EMBEDDING_MODEL_ID: (모델 확정 후 주입)
+    # deploy.resources.reservations.devices 로 GPU 할당(운영). 로컬 생략.
+
+  reranker-server:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.inference
+    environment:
+      HARAG_ROLE: reranker
+
+  # ── 상태 저장소 ──
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports: ["6333:6333"]
+    volumes: ["qdrant_data:/qdrant/storage"]
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: harag
+      POSTGRES_PASSWORD: harag
+      POSTGRES_DB: harag
+    volumes: ["pg_data:/var/lib/postgresql/data"]
+    ports: ["5432:5432"]
+
+  # 오브젝트 스토리지(원본 보존): 로컬은 MinIO, 운영은 S3 호환
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: harag
+      MINIO_ROOT_PASSWORD: harag-secret
+    ports: ["9000:9000", "9001:9001"]
+    volumes: ["minio_data:/data"]
+
+volumes:
+  qdrant_data:
+  pg_data:
+  minio_data:

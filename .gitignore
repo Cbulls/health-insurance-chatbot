@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+
+# 환경/시크릿
+.env
+
+# Qdrant 로컬 스토리지
+qdrant_storage/
+
+# OS
+.DS_Store
+
+# 테스트/샘플 산출물
+*.tmp
+sample_*.pdf

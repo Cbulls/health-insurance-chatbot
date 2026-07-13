@@ -1,0 +1,38 @@
+# harag PDF RAG MVP — 전체 기동(qdrant + api). 프론트엔드는 api가 정적 서빙.
+# 사용:  cp .env.example .env  (필요시 키 입력) →  docker compose up --build
+# 브라우저:  http://localhost:8000
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_storage:/qdrant/storage
+
+  api:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      - qdrant
+    ports:
+      - "8000:8000"
+    environment:
+      # Qdrant 연결(컴포즈 네트워크 내부 호스트명)
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_COLLECTION: harag_pdf_mvp
+      # 임베딩/LLM: .env에서 주입. 비우면 로컬 폴백(키 없이 데모 가능).
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-}
+      EMBEDDING_API_BASE: ${EMBEDDING_API_BASE:-https://api.openai.com/v1}
+      EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
+      EMBEDDING_DIM: ${EMBEDDING_DIM:-}
+      LLM_PROVIDER: ${LLM_PROVIDER:-}
+      LLM_API_BASE: ${LLM_API_BASE:-https://api.openai.com/v1}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+      TOP_K: ${TOP_K:-20}
+      MIN_SCORE: ${MIN_SCORE:-0.15}
+
+volumes:
+  qdrant_storage:

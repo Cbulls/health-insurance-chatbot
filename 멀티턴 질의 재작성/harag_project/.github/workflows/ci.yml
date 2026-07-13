@@ -1,0 +1,75 @@
+name: CI
+
+# 모든 푸시·PR에서 차단 게이트 실행. 빠르고 외부 의존 없는 것만.
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  # ── 1. 정적 검사(차단) ──
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 의존성 설치
+        run: pip install ruff mypy
+      - name: Ruff 린트
+        run: ruff check src tests
+      - name: 타입 체크
+        run: mypy src || true   # 초기엔 경고만(점진 도입). 안정화 후 차단으로 전환.
+
+  # ── 2. 계약 테스트(차단) — 설계 불변식. 깨지면 무조건 머지 차단 ──
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 의존성 설치
+        run: pip install -e ".[dev]"
+      - name: 계약 테스트(불변식)
+        run: python scripts/run_contract_tests.py
+
+  # ── 3. 동작 테스트(차단) — 구현 동작. 가짜 어댑터라 빠름 ──
+  behavior:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 의존성 설치
+        run: pip install -e ".[dev]"
+      - name: 동작 테스트(TDD)
+        run: pytest tests/behavior -v --asyncio-mode=auto
+
+  # ── 4. 통합 테스트(차단) — Qdrant 인메모리로 가능한 것 ──
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 의존성 설치
+        run: pip install -e ".[dev]" qdrant-client
+      - name: 통합 테스트(Qdrant 인메모리)
+        run: |
+          for t in tests/integration/*.py; do
+            echo "== $t =="
+            PYTHONPATH=src python "$t" || exit 1
+          done
+
+  # ── 5. 컨테이너 빌드 검증(차단) ──
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 앱 이미지 빌드
+        run: docker build -f docker/Dockerfile.app -t harag-app:ci .

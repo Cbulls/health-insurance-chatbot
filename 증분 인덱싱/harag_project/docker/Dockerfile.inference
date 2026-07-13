@@ -1,0 +1,28 @@
+# GPU 추론 서버 (embedding-server / reranker-server)
+# 앱과 분리: 무거운 ML 스택(torch 등)은 여기에만. GPU 노드 풀에 배치.
+# 코드 설계서 §5.2 — 추론과 앱 로직 분리(NFR-2 격리, 독립 스케일).
+#
+# 주의: 구체 베이스 이미지(CUDA 버전)와 추론 프레임워크(TEI/vLLM/sentence-transformers)는
+# 모델 선정(§9) 이후 확정. 아래는 sentence-transformers 기준 골격.
+
+FROM python:3.12-slim AS runtime
+
+# 실제로는 nvidia/cuda 베이스 + GPU 런타임. PoC/모델 확정 후 교체.
+# FROM nvidia/cuda:12.x-cudnn-runtime-ubuntu22.04
+
+RUN useradd --create-home --uid 10002 inference
+WORKDIR /app
+
+# ML 의존성은 여기에만 설치(앱 이미지엔 없음)
+RUN pip install --no-cache-dir \
+    "sentence-transformers>=2.6" \
+    "fastapi>=0.110" "uvicorn[standard]>=0.27"
+# torch는 CUDA 베이스에서 GPU 빌드로 설치. 모델 확정 후 버전 고정.
+
+COPY --chown=inference:inference src/harag/embedding ./harag/embedding
+ENV PYTHONPATH=/app PYTHONUNBUFFERED=1
+USER inference
+
+EXPOSE 80
+# 임베딩/리랭커 역할은 환경변수로 분기. 모델은 HARAG_EMBEDDING_MODEL_ID 등으로 주입.
+CMD ["uvicorn", "harag.embedding.server:app", "--host", "0.0.0.0", "--port", "80"]
