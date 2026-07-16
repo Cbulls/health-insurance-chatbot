@@ -5,14 +5,19 @@ PDF 파서 — 원본 PDF 바이트를 검증된 IR(DocumentIR)로 구조화(MVP
   - HWP 경로(StructuringParser + HwpDecoder)와 별개로, PDF 전용 파서를 둔다.
   - pdfplumber로 페이지별 텍스트 + 표를 추출한다.
   - 텍스트 문단 → paragraph 블록, 표 → table 블록(셀 좌표 보존).
-  - struct_path는 MVP에서 페이지("p{n}")를 프록시로 사용 → 페이지 단위 청킹·인용.
+  - struct_path: 조·항 헤더("제n조", "Article n")를 감지하면 조 단위,
+    없으면 페이지("p{n}") 프록시 → 구조 단위 청킹·인용.
+  - 표 영역(bbox) 안의 텍스트는 본문에서 제외(표-본문 중복 제거).
+  - 본문과 표를 세로 좌표 순으로 병합해 읽기 순서를 보존 → 표가 자기 조항의
+    struct_path를 물려받는다.
   - 실패(암호·손상·스캔 전용)는 예외가 아니라 ParseStatus.failed로 변환.
 
-Phase 2: 조·항·호 struct_path 복원, 표 recovery_confidence 실측, OCR(스캔 PDF).
+Phase 2: 항·호 하위 계층, 표 recovery_confidence 실측, OCR(스캔 PDF).
 """
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timezone
 
 import pdfplumber
@@ -24,7 +29,23 @@ from harag.schemas.ir import (
 
 logger = logging.getLogger("harag.parsing")
 
-PARSER_VERSION = "pdf-mvp-0.1"
+PARSER_VERSION = "pdf-mvp-0.2"
+
+# 조·항 헤더 패턴 — 행정문서/약관의 "제n조(제목)", "제n조의m", "제n장",
+# 영문 약관의 "Article n (Title)" / "Section n". 줄 시작에서만 매치.
+_CLAUSE_RE = re.compile(
+    r"^\s*(제\s*\d+\s*(?:조(?:의\s*\d+)?|장|절|관)"
+    r"|Article\s+\d+|Section\s+\d+)",
+    re.IGNORECASE,
+)
+
+
+def _clause_of(line: str) -> str | None:
+    """줄이 조·항 헤더로 시작하면 정규화된 조 라벨을 반환."""
+    m = _CLAUSE_RE.match(line)
+    if m is None:
+        return None
+    return re.sub(r"\s+", " ", m.group(1)).strip()
 
 
 class PdfParser:
@@ -43,40 +64,63 @@ class PdfParser:
         char_count = 0
         n_tables = 0
         table_conf_sum = 0.0
+        current_clause = ""  # 페이지를 넘어 이어지는 조항 컨텍스트
 
         try:
             import io
             with pdfplumber.open(io.BytesIO(raw)) as pdf:
                 for page_no, page in enumerate(pdf.pages, start=1):
-                    struct = f"p{page_no}"
+                    items = self._page_items(page)
 
-                    # ── 표(가능하면 셀 좌표 보존) ──
-                    try:
-                        tables = page.extract_tables() or []
-                    except Exception:  # noqa: BLE001 — 표 추출 실패는 본문 추출을 막지 않음
-                        tables = []
-                    for tbl in tables:
-                        blk = self._table_block(tbl, document_id, order, struct, page_no)
-                        if blk is not None:
-                            blocks.append(blk)
-                            order += 1
-                            n_tables += 1
-                            table_conf_sum += blk.table_content.recovery_confidence
+                    para_buf: list[str] = []
+                    last_bottom: float | None = None
 
-                    # ── 본문 텍스트 → 문단 블록 ──
-                    text = page.extract_text() or ""
-                    for para in self._split_paragraphs(text):
-                        char_count += len(para)
+                    def flush_para():
+                        nonlocal order, char_count
+                        text = "\n".join(para_buf).strip()
+                        para_buf.clear()
+                        if not text:
+                            return
+                        char_count += len(text)
                         blocks.append(Block(
                             block_id=f"{document_id}-b{order}",
                             block_type=BlockType.paragraph,
-                            struct_path=struct,
+                            struct_path=current_clause or f"p{page_no}",
                             order_index=order,
-                            text=para,
+                            text=text,
                             confidence=1.0,
                             page_ref=page_no,
                         ))
                         order += 1
+
+                    for top, bottom, kind, payload in items:
+                        if kind == "table":
+                            flush_para()
+                            blk = self._table_block(
+                                payload, document_id, order,
+                                current_clause or f"p{page_no}", page_no)
+                            if blk is not None:
+                                blocks.append(blk)
+                                order += 1
+                                n_tables += 1
+                                table_conf_sum += \
+                                    blk.table_content.recovery_confidence
+                            last_bottom = bottom
+                            continue
+
+                        line = payload
+                        clause = _clause_of(line)
+                        # 새 조항 헤더 → 문단 경계 + struct_path 갱신
+                        if clause is not None:
+                            flush_para()
+                            current_clause = clause
+                        # 세로 간격이 줄 높이보다 크면 빈 줄(문단 경계)로 간주
+                        elif (last_bottom is not None
+                              and top - last_bottom > (bottom - top) * 0.6):
+                            flush_para()
+                        para_buf.append(line)
+                        last_bottom = bottom
+                    flush_para()
         except Exception:  # noqa: BLE001 — 열기 실패(암호·손상) → failed
             logger.exception("pdf parse failed: %s", filename)
             return self._failed(document_id, meta)
@@ -104,6 +148,52 @@ class PdfParser:
         )
 
     @staticmethod
+    def _page_items(page) -> list[tuple[float, float, str, object]]:
+        """페이지를 (top, bottom, kind, payload) 목록으로 — 세로 좌표 순.
+
+        kind="line"  payload=텍스트 줄(표 영역 밖만 — 중복 제거)
+        kind="table" payload=추출된 표(list[list])
+        표 추출·좌표 조회가 실패하면 페이지 전체 텍스트로 폴백한다.
+        """
+        try:
+            found = page.find_tables() or []
+        except Exception:  # noqa: BLE001 — 표 추출 실패는 본문 추출을 막지 않음
+            found = []
+
+        items: list[tuple[float, float, str, object]] = []
+        try:
+            filtered = page
+            for t in found:
+                filtered = filtered.outside_bbox(t.bbox)
+            for ln in filtered.extract_text_lines() or []:
+                text = (ln.get("text") or "").strip()
+                if text:
+                    items.append((float(ln["top"]), float(ln["bottom"]),
+                                  "line", text))
+            for t in found:
+                items.append((float(t.bbox[1]), float(t.bbox[3]),
+                              "table", t.extract()))
+        except Exception:  # noqa: BLE001 — 좌표 기반 추출 실패 → 평문 폴백
+            items = []
+            text = page.extract_text() or ""
+            y = 0.0
+            for para in PdfParser._split_paragraphs(text):
+                for line in para.split("\n"):
+                    if line.strip():
+                        items.append((y, y + 1.0, "line", line.strip()))
+                        y += 2.0
+                y += 2.0  # 문단 사이 간격 > 줄 높이 → 문단 경계 유지
+            for t in found:
+                try:
+                    items.append((float(t.bbox[1]), float(t.bbox[3]),
+                                  "table", t.extract()))
+                except Exception:  # noqa: BLE001
+                    continue
+
+        items.sort(key=lambda it: it[0])
+        return items
+
+    @staticmethod
     def _split_paragraphs(text: str) -> list[str]:
         # 빈 줄 기준 문단 분리. 없으면 줄 단위. 공백만인 조각은 제외.
         text = text.replace("\r\n", "\n").replace("\r", "\n")
@@ -116,7 +206,7 @@ class PdfParser:
     @staticmethod
     def _table_block(tbl: list, document_id: str, order: int,
                      struct: str, page_no: int) -> Block | None:
-        rows = [r for r in tbl if r is not None]
+        rows = [r for r in (tbl or []) if r is not None]
         if not rows:
             return None
         n_rows = len(rows)
@@ -129,6 +219,7 @@ class PdfParser:
                 cells.append(TableCell(
                     row=r_idx, col=c_idx,
                     text="" if val is None else str(val).strip(),
+                    is_header=(r_idx == 0),
                 ))
         if not cells:
             return None

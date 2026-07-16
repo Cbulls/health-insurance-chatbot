@@ -26,7 +26,7 @@ logger = logging.getLogger("harag.api")
 
 def _build_and_inject() -> None:
     """설정을 읽어 파이프라인·수집 서비스를 만들어 주입한다."""
-    from harag.embedding.api_embedder import build_embedding_model, SimpleMorph
+    from harag.embedding.api_embedder import build_embedding_model, build_morph
     from harag.embedding.embedder import HybridEmbedder
     from harag.retrieval.qdrant_store import QdrantVectorStore
     from harag.parsing.pdf_parser import PdfParser
@@ -35,7 +35,7 @@ def _build_and_inject() -> None:
     from harag.llm.factory import build_llm_client
     from harag.llm.http_transport import OpenAIChatTransport
     from harag.llm.local_rerank import (
-        LexicalCrossEncoder, IdentityRewriteLLM, LLMRewriteLLM,
+        LexicalCrossEncoder, LLMCrossEncoder, IdentityRewriteLLM, LLMRewriteLLM,
     )
     from harag.retrieval.reranker import CrossEncoderReranker
     from harag.retrieval.rewriter import QueryRewriter, ConversationStore
@@ -56,7 +56,10 @@ def _build_and_inject() -> None:
     metadata = MetadataStore(dsn=db_url)
 
     embedding_model = build_embedding_model(settings)
-    embedder = HybridEmbedder(embedding_model, SimpleMorph())
+    # 적재(embedder)와 질의(store)가 반드시 같은 토크나이저를 공유해야
+    # sparse 인덱스가 일치한다(kiwipiepy 설치 시 형태소, 아니면 어절 폴백).
+    morph = build_morph()
+    embedder = HybridEmbedder(embedding_model, morph)
     store = QdrantVectorStore(
         embedding_model=embedding_model,
         dim=embedding_model.dim,
@@ -65,19 +68,34 @@ def _build_and_inject() -> None:
         api_key=settings.qdrant_api_key or None,
         disk_budget_mb=settings.qdrant_disk_budget_mb,
         payload_bytes_per_point=settings.qdrant_payload_bytes_per_point,
+        morph=morph,
     )
     llm = build_llm_client(settings)
     generator = AnswerGenerator(llm=llm, min_score=settings.min_score)
 
-    # 리랭커: 로컬 어절-겹침 cross-encoder 폴백(키 없이도 실제 재순위).
-    # top_k로 넓게 회수 → top_n으로 정밀 컷. reranker 서버 URL 생기면 교체.
-    # retrieval_blend=0.7: 어절 겹침이 약한 신호(한↔영 교차)라 dense 점수를 보존.
-    # 블렌드 없으면 한국어 질의+영문 문서에서 점수가 0이 되어 low_score abstain된다.
+    # 리랭커: LLM 키 + RERANK_LLM_ENABLED면 LLM pointwise 재순위(정밀).
+    # 아니면 로컬 어절-겹침 cross-encoder 폴백(키 없이도 실제 재순위).
+    # top_k로 넓게 회수 → top_n으로 정밀 컷.
+    llm_rerank = (settings.rerank_llm_enabled
+                  and settings.llm_provider == "openai" and settings.llm_api_key)
+    if llm_rerank:
+        rerank_transport = OpenAIChatTransport(
+            api_base=settings.llm_api_base, api_key=settings.llm_api_key)
+        rerank_model = (settings.rerank_llm_model
+                        or settings.llm_rewrite_model or settings.llm_model)
+        cross_encoder = LLMCrossEncoder(rerank_transport, rerank_model)
+        # LLM 점수는 질의-청크를 함께 본 강한 신호 → retrieval 블렌드 낮춤
+        blend = 0.3
+    else:
+        cross_encoder = LexicalCrossEncoder()
+        # retrieval_blend=0.7: 어절 겹침이 약한 신호(한↔영 교차)라 dense 점수를
+        # 보존. 블렌드 없으면 한국어 질의+영문 문서에서 low_score abstain된다.
+        blend = 0.7
     reranker = CrossEncoderReranker(
-        model=LexicalCrossEncoder(),
+        model=cross_encoder,
         top_n=min(5, settings.top_k),
         min_score=0.0,
-        retrieval_blend=0.7,
+        retrieval_blend=blend,
     )
 
     # 멀티턴 재작성: LLM 키 있으면 지시어 해소, 없으면 identity(원본) 폴백.
@@ -105,10 +123,11 @@ def _build_and_inject() -> None:
     set_vector_store(store)
 
     logger.info(
-        "assembled: embedding=%s(dim=%d) llm=%s qdrant=%s db=%s rerank=lexical rewrite=%s",
+        "assembled: embedding=%s(dim=%d) llm=%s qdrant=%s db=%s rerank=%s rewrite=%s",
         embedding_model.model_id, embedding_model.dim,
         settings.llm_provider, settings.qdrant_url or ":memory:",
         "sqlite" if db_url.startswith("sqlite") else "postgres",
+        "llm" if llm_rerank else "lexical",
         type(rewrite_llm).__name__)
 
 

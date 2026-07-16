@@ -9,3 +9,4 @@ pdfplumber>=0.11
 SQLAlchemy>=2.0
 PyJWT>=2.8
 # boto3>=1.34   # (선택) 운영 S3/MinIO 사용 시
+# kiwipiepy>=0.18  # (선택) 한국어 형태소 sparse 토크나이저 — 없으면 어절 폴백

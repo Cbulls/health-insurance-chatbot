@@ -126,8 +126,11 @@ class QdrantVectorStore:
             "vectors_config": {"dense": dense_params},
         }
         if self._want_hybrid:
+            # IDF modifier: 흔한 토큰(조사·일반어)의 기여를 낮춰 실질 BM25에
+            # 근접시킨다. 서버가 문서 빈도를 집계하므로 클라이언트는 TF만 보낸다.
             create_kwargs["sparse_vectors_config"] = {
-                "sparse": models.SparseVectorParams()}
+                "sparse": models.SparseVectorParams(
+                    modifier=models.Modifier.IDF)}
 
         if self._remote:
             # 저자원(무료 사양) 구성: 원본 벡터·HNSW·payload는 디스크(mmap),

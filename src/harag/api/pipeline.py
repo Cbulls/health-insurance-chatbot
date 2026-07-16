@@ -115,7 +115,9 @@ class QueryPipelineImpl:
 
         # 실 스트리밍: LLM 토큰을 도착하는 대로 전달(TTFT = 검색+첫 토큰).
         # 토큰 대기는 블로킹 I/O라 next()를 워커 스레드로 오프로드한다.
+        # 답변 전문을 모아 종료 후 [문서 N] 마커를 파싱한다(구조화 인용).
         emitted = False
+        pieces: list[str] = []
         it = iter(token_iter)
         try:
             while True:
@@ -123,6 +125,7 @@ class QueryPipelineImpl:
                 if piece is _STREAM_DONE:
                     break
                 emitted = True
+                pieces.append(piece)
                 yield StreamEvent(kind="token", data=piece)
         except CostLimitError as e:
             logger.warning("LLM cost limit (stream): %s", e)
@@ -142,7 +145,14 @@ class QueryPipelineImpl:
             return
 
         self._record_turn(query, conversation_id)
-        labels = _unique_labels(results)
+        # 답변이 실제로 인용한 청크만 출처로 노출. 마커가 없으면(모델 미준수)
+        # 검색 결과 전체로 폴백 — 출처를 아예 숨기는 것보다 낫다.
+        from harag.generation.citations import extract_cited_ids
+        cited = set(extract_cited_ids(
+            "".join(pieces), [r.chunk.meta.chunk_id for r in results]))
+        cited_chunks = [r for r in results if r.chunk.meta.chunk_id in cited] \
+            if cited else results
+        labels = _unique_labels(cited_chunks)
         yield StreamEvent(kind="citations", data="; ".join(labels))
         yield StreamEvent(kind="done", data="")
 

@@ -11,6 +11,8 @@
 """
 from __future__ import annotations
 
+import json
+import logging
 import re
 
 _TOKEN = re.compile(r"[0-9A-Za-z가-힣]+")
@@ -33,6 +35,55 @@ class LexicalCrossEncoder:
         if not q:
             return [0.0 for _ in texts]
         return [len(q & _tokens(t)) / len(q) for t in texts]
+
+
+class LLMCrossEncoder:
+    """LLM 기반 pointwise 리랭커(CrossEncoder Protocol) — 운영 경로.
+
+    질의-후보 전체를 '한 번의' Chat 호출에 배치로 넣고 0~10 관련도 점수의
+    JSON 배열을 받는다(후보당 호출 아님 — 쿼터·지연 절약).
+    호출·파싱 실패 시 LexicalCrossEncoder 점수로 폴백한다(검색은 계속 동작).
+    """
+
+    _MAX_CHARS_PER_DOC = 600  # 후보 절단 — 프롬프트 폭주 방지
+
+    def __init__(self, transport, model: str):
+        self._transport = transport
+        self._model = model
+        self._fallback = LexicalCrossEncoder()
+
+    def score_pairs(self, query: str, texts: list[str]) -> list[float]:
+        if not texts:
+            return []
+        try:
+            scores = self._score_llm(query, texts)
+            if scores is not None:
+                return scores
+        except Exception:  # noqa: BLE001 — 리랭커 장애가 검색을 죽이면 안 됨
+            logging.getLogger("harag.rerank").warning(
+                "LLM rerank failed — lexical fallback", exc_info=True)
+        return self._fallback.score_pairs(query, texts)
+
+    def _score_llm(self, query: str, texts: list[str]) -> list[float] | None:
+        docs = "\n".join(
+            f"[{i + 1}] {t[:self._MAX_CHARS_PER_DOC]}"
+            for i, t in enumerate(texts))
+        prompt = (
+            "너는 검색 결과 평가자다. 질의에 대한 각 문서의 관련도를 "
+            "0(무관)~10(직접 답변 근거) 정수로 평가하라.\n"
+            f"문서는 {len(texts)}개다. 설명 없이 길이 {len(texts)}의 "
+            "JSON 정수 배열만 출력한다. 예: [7, 0, 3]\n\n"
+            f"질의: {query}\n\n{docs}"
+        )
+        resp = self._transport.post({"model": self._model, "prompt": prompt})
+        raw = (resp.get("answer") or "").strip()
+        m = re.search(r"\[[\d\s,.-]*\]", raw)
+        if m is None:
+            return None
+        scores = json.loads(m.group())
+        if not isinstance(scores, list) or len(scores) != len(texts):
+            return None
+        return [max(0.0, min(10.0, float(s))) / 10.0 for s in scores]
 
 
 class IdentityRewriteLLM:

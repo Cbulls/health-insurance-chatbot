@@ -1,14 +1,15 @@
 """
 OpenAI 호환 Chat Completions 전송 계층.
 
-ExternalLLMClient의 Transport Protocol 구현. payload({model, prompt, context_ids})를
-받아 실제 프로바이더(/chat/completions)를 호출하고 {"answer","citations"}로 매핑한다.
+ExternalLLMClient의 Transport Protocol 구현. payload({model, system?, prompt,
+context_ids?})를 받아 실제 프로바이더(/chat/completions)를 호출하고
+{"answer","citations"}로 매핑한다.
 
 프로바이더 무관: OpenAI, Upstage Solar, 국내 OpenAI 호환 게이트웨이, 로컬 vLLM 등
 base_url만 바꿔 끼운다. 429→RateLimitError, 타임아웃→LLMTimeout으로 방어 계층에 위임.
 
-MVP는 LLM이 청크 id를 신뢰성 있게 인용하기 어렵다고 보고 citations=[]로 둔다
-(파이프라인이 '검색된 청크'를 출처로 노출). Phase 2에서 구조화 인용으로 강화.
+구조화 인용: 프롬프트가 컨텍스트에 [문서 N] 번호를 매기므로, 답변의 [문서 N]
+마커를 context_ids[N-1]로 매핑해 citations를 채운다(답변 근거 추적 가능).
 """
 from __future__ import annotations
 
@@ -18,6 +19,15 @@ from typing import Iterator
 import httpx
 
 from harag.generation.llm_client import RateLimitError, LLMTimeout, LLMError
+from harag.generation.citations import extract_cited_ids
+
+
+def _messages(payload: dict) -> list[dict]:
+    msgs = []
+    if payload.get("system"):
+        msgs.append({"role": "system", "content": payload["system"]})
+    msgs.append({"role": "user", "content": payload["prompt"]})
+    return msgs
 
 
 class OpenAIChatTransport:
@@ -35,7 +45,7 @@ class OpenAIChatTransport:
     def post(self, payload: dict) -> dict:
         body = {
             "model": payload["model"],
-            "messages": [{"role": "user", "content": payload["prompt"]}],
+            "messages": _messages(payload),
             "temperature": 0.0,
         }
         try:
@@ -57,7 +67,8 @@ class OpenAIChatTransport:
             answer = data["choices"][0]["message"]["content"]
         except (KeyError, IndexError) as e:
             raise LLMError("프로바이더 응답 파싱 실패") from e
-        return {"answer": answer, "citations": []}
+        citations = extract_cited_ids(answer, payload.get("context_ids") or [])
+        return {"answer": answer, "citations": citations}
 
     def post_stream(self, payload: dict) -> Iterator[str]:
         """스트리밍 호출(stream=true) — content 델타를 도착하는 대로 yield.
@@ -66,7 +77,7 @@ class OpenAIChatTransport:
         오류 매핑은 post()와 동일(429→RateLimitError 등)."""
         body = {
             "model": payload["model"],
-            "messages": [{"role": "user", "content": payload["prompt"]}],
+            "messages": _messages(payload),
             "temperature": 0.0,
             "stream": True,
         }

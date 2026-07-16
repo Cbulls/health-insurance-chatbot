@@ -106,6 +106,10 @@ class Settings:
     # ── 검색/생성 파라미터 ──
     top_k: int
     min_score: float
+    # LLM 리랭커: 질의마다 저비용 LLM 한 번으로 top-K를 정밀 재순위.
+    # 끄면(false) 어휘 겹침 리랭커 폴백. LLM 키 없으면 자동 폴백.
+    rerank_llm_enabled: bool
+    rerank_llm_model: str          # 비면 llm_rewrite_model → llm_model 순
 
     # ── 업로드 ──
     max_upload_bytes: int
@@ -168,6 +172,8 @@ def get_settings() -> Settings:
             "QDRANT_PAYLOAD_BYTES_PER_POINT", 2048),
         top_k=_get_int("TOP_K", 20),
         min_score=_get_float("MIN_SCORE", 0.15),
+        rerank_llm_enabled=_get_bool("RERANK_LLM_ENABLED", True),
+        rerank_llm_model=_get("RERANK_LLM_MODEL", ""),
         max_upload_bytes=_get_int("MAX_UPLOAD_BYTES", 100 * 1024 * 1024),
         rate_limit_qpm=_get_int("RATE_LIMIT_QPM", 20),
         allowed_origins=_split_csv(_get("ALLOWED_ORIGINS", "")),

@@ -46,19 +46,30 @@ def _estimate_tokens(texts: list[str], query: str) -> int:
 class ExternalLLMClient:
     """LLMClient 구현체. 생성기의 _StubLLM 자리에 주입된다."""
 
+    DEFAULT_SYSTEM_INSTRUCTION = (
+        "너는 보험 약관·규정 문서 기반 상담 어시스턴트다. "
+        "제공된 문서에만 근거해 한국어로 정확하게 답하라. "
+        "금액·한도·기간·비율 등 수치는 문서의 값을 그대로 옮기고, "
+        "적용 조건이나 예외가 있으면 함께 명시하라. "
+        "문서에 근거가 없으면 추측하지 말고 모른다고 답하라. "
+        "답변의 각 주장 끝에 근거 문서 번호를 [문서 N] 형식으로 표기하라. "
+        "여러 문서가 근거면 각각 표기한다. 예: 통원 한도는 회당 20만원이다 [문서 2]. "
+        "모른다고 답할 때는 [문서 N] 마커를 붙이지 마라."
+    )
+
     def __init__(self, transport: Transport, model: str,
                  max_cost_per_query_usd: float = 0.50,
                  cost_per_1k_tokens: float = 0.01,
                  max_retries: int = 3, base_backoff_sec: float = 0.2,
-                 system_instruction: str = "제공된 문서에만 근거해 한국어로 답하라. "
-                                           "근거가 없으면 모른다고 답하라."):
+                 system_instruction: str | None = None):
         self._transport = transport
         self._model = model
         self._max_cost = max_cost_per_query_usd
         self._cost_per_1k = cost_per_1k_tokens
         self._max_retries = max_retries
         self._base_backoff = base_backoff_sec
-        self._system_instruction = system_instruction
+        self._system_instruction = (system_instruction
+                                    or self.DEFAULT_SYSTEM_INSTRUCTION)
 
     def _build_payload(self, query: str, context_texts: list[str],
                        context_ids: list[str]) -> dict:
@@ -70,15 +81,16 @@ class ExternalLLMClient:
             raise CostLimitError(
                 f"예상 비용 ${est_cost:.3f} > 상한 ${self._max_cost:.3f}")
 
-        # 프롬프트 인젝션 방어: 시스템 지시와 문서를 구조적으로 분리(SEC-02).
-        from harag.security.injection import build_safe_prompt
-        safe_prompt = build_safe_prompt(
+        # 프롬프트 인젝션 방어: 시스템 지시와 문서를 '역할'로 분리(SEC-02).
+        from harag.security.injection import build_safe_messages
+        system, user = build_safe_messages(
             system_instruction=self._system_instruction,
             query=query, context_texts=context_texts)
 
         return {
             "model": self._model,
-            "prompt": safe_prompt,
+            "system": system,
+            "prompt": user,
             "context_ids": context_ids,
         }
 

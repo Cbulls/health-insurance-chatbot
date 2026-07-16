@@ -27,6 +27,40 @@ class SimpleMorph:
         return _TOKEN.findall(text.lower())
 
 
+# sparse 신호에 유효한 품사: 명사(N*)·동사/형용사(V*)·어근(XR)·숫자(SN)·외국어(SL)
+_KIWI_TAGS = ("NN", "NP", "NR", "VV", "VA", "XR", "SN", "SL")
+
+
+class KiwiMorph:
+    """kiwipiepy 형태소 분석 — 조사·어미를 떼고 내용어 원형만 남긴다.
+
+    '보험금을 청구하려면' → ['보험금', '청구'] 처럼 문서·질의의 표면형이 달라도
+    같은 토큰으로 정규화돼 sparse(BM25) recall이 오른다. 숫자·영문은 유지.
+    """
+
+    def __init__(self):
+        from kiwipiepy import Kiwi  # import 실패는 build_morph가 처리
+        self._kiwi = Kiwi()
+
+    def tokens(self, text: str) -> list[str]:
+        out: list[str] = []
+        for tok in self._kiwi.tokenize(text):
+            if tok.tag.startswith(_KIWI_TAGS):
+                out.append(tok.form.lower())
+        # 분석 결과가 비면(기호뿐 등) 어절 폴백 — 빈 sparse로 절름발이 검색 방지
+        return out or _TOKEN.findall(text.lower())
+
+
+def build_morph():
+    """kiwipiepy가 있으면 형태소 분석, 없으면 어절 토크나이저 폴백.
+
+    적재·질의가 반드시 같은 토크나이저를 쓰도록 이 팩토리 하나로 통일한다."""
+    try:
+        return KiwiMorph()
+    except ImportError:
+        return SimpleMorph()
+
+
 class LocalHashEmbeddingModel:
     """결정적 해시 임베딩(bag-of-words + 문자 bigram). 키 불필요.
 
