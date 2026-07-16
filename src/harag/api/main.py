@@ -37,14 +37,22 @@ def _build_and_inject() -> None:
     from harag.llm.local_rerank import (
         LexicalCrossEncoder, LLMCrossEncoder, IdentityRewriteLLM, LLMRewriteLLM,
     )
+    from harag.llm.http_rerank import HttpCrossEncoder
     from harag.retrieval.reranker import CrossEncoderReranker
     from harag.retrieval.rewriter import QueryRewriter, ConversationStore
     from harag.api.pipeline import QueryPipelineImpl
     from harag.api.ingest import InProcessIngest
     from harag.api.deps import set_query_pipeline, set_ingest, set_vector_store
     from harag.storage.metadata_store import MetadataStore
+    from harag.config.settings import resolve_rerank_defaults
 
     settings = get_settings()
+
+    # Phase A: 회수 천장 — local hash는 데모 전용(운영 정확도 상한을 깎음).
+    if settings.embedding_provider == "local" or not settings.embedding_api_key:
+        logger.warning(
+            "embedding=local(hash) — 데모용. 운영 정확도를 위해 "
+            "EMBEDDING_API_KEY + OpenAI호환(Gemini 등) 실임베딩을 쓰세요.")
 
     # 문서 등록부: SQLite 파일이면 data/ 보장. DATABASE_URL로 Postgres 전환 가능.
     db_url = settings.database_url
@@ -69,34 +77,62 @@ def _build_and_inject() -> None:
         disk_budget_mb=settings.qdrant_disk_budget_mb,
         payload_bytes_per_point=settings.qdrant_payload_bytes_per_point,
         morph=morph,
+        sparse_bytes_per_point=settings.qdrant_sparse_bytes_per_point,
+        segment_factor=settings.qdrant_segment_factor,
+        upsert_batch_size=settings.qdrant_upsert_batch_size,
+        hybrid_prefetch_mult=settings.hybrid_prefetch_mult,
+        count_cache_ttl_s=settings.qdrant_count_cache_ttl_s,
     )
+    if (settings.embedding_provider == "openai"
+            and settings.embedding_dim > 768
+            and not settings.embedding_send_dimensions):
+        logger.warning(
+            "EMBEDDING_DIM=%d without EMBEDDING_SEND_DIMENSIONS — "
+            "무료 Qdrant 디스크를 아끼려면 EMBEDDING_DIM=512 + "
+            "EMBEDDING_SEND_DIMENSIONS=true 권장(컬렉션 재생성 필요)",
+            settings.embedding_dim)
     llm = build_llm_client(settings)
     generator = AnswerGenerator(llm=llm, min_score=settings.min_score)
 
-    # 리랭커: LLM 키 + RERANK_LLM_ENABLED면 LLM pointwise 재순위(정밀).
-    # 아니면 로컬 어절-겹침 cross-encoder 폴백(키 없이도 실제 재순위).
+    # 리랭커 우선순위: LLM pointwise → TEI HTTP CE → Lexical 폴백.
     # top_k로 넓게 회수 → top_n으로 정밀 컷.
-    llm_rerank = (settings.rerank_llm_enabled
+    blend, rerank_min = resolve_rerank_defaults(settings)
+    rerank_mode = "off"
+    reranker = None
+    llm_rerank = (settings.rerank_enabled and settings.rerank_llm_enabled
                   and settings.llm_provider == "openai" and settings.llm_api_key)
     if llm_rerank:
         rerank_transport = OpenAIChatTransport(
             api_base=settings.llm_api_base, api_key=settings.llm_api_key)
         rerank_model = (settings.rerank_llm_model
                         or settings.llm_rewrite_model or settings.llm_model)
-        cross_encoder = LLMCrossEncoder(rerank_transport, rerank_model)
+        ce_model = LLMCrossEncoder(rerank_transport, rerank_model)
         # LLM 점수는 질의-청크를 함께 본 강한 신호 → retrieval 블렌드 낮춤
-        blend = 0.3
-    else:
-        cross_encoder = LexicalCrossEncoder()
-        # retrieval_blend=0.7: 어절 겹침이 약한 신호(한↔영 교차)라 dense 점수를
-        # 보존. 블렌드 없으면 한국어 질의+영문 문서에서 low_score abstain된다.
-        blend = 0.7
-    reranker = CrossEncoderReranker(
-        model=cross_encoder,
-        top_n=min(5, settings.top_k),
-        min_score=0.0,
-        retrieval_blend=blend,
-    )
+        blend, rerank_min = 0.3, 0.0
+        rerank_mode = "llm"
+        reranker = CrossEncoderReranker(
+            model=ce_model,
+            top_n=min(settings.rerank_top_n, settings.top_k),
+            min_score=rerank_min,
+            retrieval_blend=blend,
+        )
+    elif settings.rerank_enabled:
+        top_n = min(settings.rerank_top_n, settings.top_k)
+        if settings.reranker_server_url:
+            ce_model = HttpCrossEncoder(
+                settings.reranker_server_url,
+                timeout_ms=settings.rerank_timeout_ms,
+            )
+            rerank_mode = "http"
+        else:
+            ce_model = LexicalCrossEncoder()
+            rerank_mode = "lexical"
+        reranker = CrossEncoderReranker(
+            model=ce_model,
+            top_n=top_n,
+            min_score=rerank_min,
+            retrieval_blend=blend,
+        )
 
     # 멀티턴 재작성: LLM 키 있으면 지시어 해소, 없으면 identity(원본) 폴백.
     # 재작성은 질의마다 LLM을 한 번 더 부르므로(쿼터·지연), 설정으로 끄거나
@@ -106,14 +142,24 @@ def _build_and_inject() -> None:
         rewrite_transport = OpenAIChatTransport(
             api_base=settings.llm_api_base, api_key=settings.llm_api_key)
         rewrite_model = settings.llm_rewrite_model or settings.llm_model
-        rewrite_llm = LLMRewriteLLM(rewrite_transport, rewrite_model)
+        rewrite_llm = LLMRewriteLLM(
+            rewrite_transport, rewrite_model,
+            max_chars=settings.llm_rewrite_max_chars)
     else:
         rewrite_llm = IdentityRewriteLLM()
+        if settings.llm_rewrite_enabled:
+            logger.warning(
+                "rewrite=Identity — LLM 키 없음. 멀티턴 지시어 해소 불가 "
+                "(리랭커로 복구 안 됨). LLM_API_KEY 또는 LLM_REWRITE_ENABLED=false")
     rewriter = QueryRewriter(rewrite_llm, ConversationStore())
 
-    pipeline = QueryPipelineImpl(retriever=store, generator=generator,
-                                 reranker=reranker, rewriter=rewriter,
-                                 top_k=settings.top_k)
+    pipeline = QueryPipelineImpl(
+        retriever=store, generator=generator,
+        reranker=reranker, rewriter=rewriter,
+        top_k=settings.top_k,
+        under_load_inflight=settings.rerank_under_load_inflight,
+        context_dedupe=settings.context_dedupe,
+    )
     ingest = InProcessIngest(
         parser=PdfParser(), chunker=StructuralChunker(),
         embedder=embedder, store=store, metadata=metadata)
@@ -122,13 +168,18 @@ def _build_and_inject() -> None:
     set_ingest(ingest)
     set_vector_store(store)
 
+    hybrid_flag = getattr(store, "_hybrid", None)
     logger.info(
-        "assembled: embedding=%s(dim=%d) llm=%s qdrant=%s db=%s rerank=%s rewrite=%s",
+        "assembled: embedding=%s(dim=%d) llm=%s qdrant=%s hybrid=%s db=%s "
+        "rerank=%s(blend=%.2f,min=%.3f,top_n=%d) rewrite=%s",
         embedding_model.model_id, embedding_model.dim,
         settings.llm_provider, settings.qdrant_url or ":memory:",
+        hybrid_flag,
         "sqlite" if db_url.startswith("sqlite") else "postgres",
-        "llm" if llm_rerank else "lexical",
+        rerank_mode, blend, rerank_min,
+        min(settings.rerank_top_n, settings.top_k) if settings.rerank_enabled else 0,
         type(rewrite_llm).__name__)
+
 
 
 @asynccontextmanager

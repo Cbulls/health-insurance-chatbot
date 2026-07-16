@@ -29,10 +29,12 @@ class FakeEmbedModel:
 
 # ════════ max_points 역산 ════════
 def test_CG01_max_points_formula():
-    """dim 512, payload 2KB, 예산 3072MB → 포인트당 5120B → 629,145 포인트."""
+    """dim 512 + sparse/segment 보정 용량 공식."""
     got = QdrantVectorStore._compute_max_points(
-        budget_mb=3072, dim=512, payload_bytes=2048)
-    assert got == 3072 * 1024 * 1024 // (512 * 4 * 1.5 + 2048)
+        budget_mb=3072, dim=512, payload_bytes=1536,
+        sparse_bytes=640, segment_factor=1.15)
+    per = (512 * 4 * 1.5 + 640 + 1536) * 1.15
+    assert got == int(3072 * 1024 * 1024 / per)
 
 
 def test_CG02_zero_budget_disables_guard():
@@ -72,6 +74,9 @@ def test_CG05_capacity_status_reports_usage():
     assert st["max_points"] == 100
     assert st["used_pct"] == 0.0
     assert "hybrid" in st
+    assert st.get("approx") is True
+    assert st.get("payload_schema") == "v2"
+    assert "per_point_estimate" in st
 
 
 # ════════ 원격 컬렉션 저자원 구성 + Cloud 인증 ════════

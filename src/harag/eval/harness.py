@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -65,6 +66,41 @@ def mrr(gold: set[str], retrieved: list[str]) -> float:
     return 0.0
 
 
+def _dcg_at_k(relevances: list[float], k: int) -> float:
+    s = 0.0
+    for i, rel in enumerate(relevances[:k]):
+        # 표준 DCG: rel / log2(rank+1), rank는 1-based
+        s += rel / math.log2(i + 2)
+    return s
+
+
+def ndcg_at_k(gold: set[str], retrieved: list[str], k: int = 5) -> float:
+    """이진 관련성 nDCG@k — 리랭커 순위 품질(골드 in top-K일 때 상단 집중도)."""
+    if not gold:
+        return 1.0
+    rels = [1.0 if cid in gold else 0.0 for cid in retrieved[:k]]
+    dcg = _dcg_at_k(rels, k)
+    ideal = _dcg_at_k(sorted(rels, reverse=True), k)
+    # ideal이 0이면 gold가 top-k에 없음
+    if ideal <= 0:
+        # gold가 더 있을 수 있으므로 ideal은 min(|gold|, k)개의 1.0
+        ideal = _dcg_at_k([1.0] * min(len(gold), k), k)
+        if ideal <= 0:
+            return 0.0
+    return dcg / ideal
+
+
+def context_noise_rate(gold: set[str], retrieved: list[str], k: int = 5) -> float:
+    """top-k 중 비골드 비율 — 컨텍스트 노이즈(낮을수록 좋음). absent면 0."""
+    if not gold:
+        return 0.0
+    top = retrieved[:k]
+    if not top:
+        return 1.0
+    junk = sum(1 for cid in top if cid not in gold)
+    return junk / len(top)
+
+
 # ════════ Generation 지표 ════════
 def is_abstention(out: SystemOutput) -> bool:
     return out.answer is None
@@ -91,6 +127,8 @@ class TypeReport:
     mrr: float
     abstention_acc: float
     citation_faithful_rate: float
+    ndcg_k: float = 0.0
+    context_noise: float = 0.0
 
 
 def evaluate(gold_set: list[GoldQuery],
@@ -109,7 +147,9 @@ def evaluate(gold_set: list[GoldQuery],
         mr = sum(mrr(g.gold_chunk_ids, outputs[g.qid].retrieved_chunk_ids) for g in qs) / n
         ab = sum(abstention_correct(g, outputs[g.qid]) for g in qs) / n
         cf = sum(citation_faithful(outputs[g.qid]) for g in qs) / n
-        reports[qtype] = TypeReport(qtype, n, hk, mr, ab, cf)
+        nd = sum(ndcg_at_k(g.gold_chunk_ids, outputs[g.qid].retrieved_chunk_ids, k) for g in qs) / n
+        nz = sum(context_noise_rate(g.gold_chunk_ids, outputs[g.qid].retrieved_chunk_ids, k) for g in qs) / n
+        reports[qtype] = TypeReport(qtype, n, hk, mr, ab, cf, nd, nz)
     return reports
 
 

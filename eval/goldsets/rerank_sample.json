@@ -1,0 +1,21 @@
+{
+  "description": "리랭커 nDCG/노이즈 회귀용 소표본 골드(청크 id는 평가 하네스용 논리 id)",
+  "queries": [
+    {
+      "qid": "rq1",
+      "query": "국내 출장 여비 상한은?",
+      "qtype": "body",
+      "gold_chunk_ids": ["gold_travel_limit"],
+      "gold_answer": "1일 5만원",
+      "source_document_id": "sample_travel"
+    },
+    {
+      "qid": "rq2",
+      "query": "우주여행 출장비 한도는?",
+      "qtype": "absent",
+      "gold_chunk_ids": [],
+      "gold_answer": null,
+      "source_document_id": "sample_travel"
+    }
+  ]
+}

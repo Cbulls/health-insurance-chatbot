@@ -125,7 +125,17 @@ class InProcessIngest:
                 logger.warning("boundary2 violation on %s: %s", document_id, e)
 
             embedded = self._embedder.embed(chunks)
-            n = self._store.index(embedded)
+            # replace_document: 재청킹 시 고아 포인트 GC. skip_capacity: 위에서 검사함.
+            index_fn = self._store.index
+            try:
+                n = index_fn(
+                    embedded,
+                    skip_capacity_check=True,
+                    replace_document=True,
+                )
+            except TypeError:
+                # 스텁/구 시그니처 호환
+                n = index_fn(embedded)
 
             self._metadata.mark_ready(document_id, owner, n)
             logger.info("ingested %s: %d chunks", document_id, n)

@@ -13,5 +13,11 @@ def build_llm_client(settings: Settings):
             api_base=settings.llm_api_base,
             api_key=settings.llm_api_key,
         )
-        return ExternalLLMClient(transport=transport, model=settings.llm_model)
+        return ExternalLLMClient(
+            transport=transport,
+            model=settings.llm_model,
+            max_cost_per_query_usd=settings.llm_max_cost_per_query_usd,
+            cost_per_1k_tokens=settings.llm_cost_per_1k_tokens,
+            max_retries=max(0, settings.llm_max_retries),
+        )
     return LocalExtractiveLLM()

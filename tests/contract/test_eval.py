@@ -1,6 +1,7 @@
 """국면 C 증명 — 유형별 분리 평가가 '평균에 가려진 약점'을 잡는지."""
 from harag.eval.harness import (
     QueryType, GoldQuery, SystemOutput, evaluate, ci_gate, QualitySLO,
+    ndcg_at_k, context_noise_rate,
 )
 
 PASS, FAIL = [], []
@@ -86,6 +87,20 @@ gold_with_stale = gold + [
 r_stale = evaluate(gold_with_stale, {**good, "q6": SystemOutput(["x"], "틀린답")}, k=5)
 # q6는 stale이라 평가에서 빠짐 -> body 유형 n은 여전히 1
 ok("S4/stale query excluded from evaluation", r_stale[QueryType.body].n == 1)
+
+
+# ════════ 시나리오 5: nDCG·컨텍스트 노이즈(리랭커 회귀) ════════
+# gold=c1이 1등이면 nDCG=1, 3등이면 더 낮음. 노이즈는 top-k 비골드 비율.
+perfect = ["c1", "x", "y"]
+buried = ["x", "y", "c1"]
+ok("S5/ndcg perfect rank = 1", ndcg_at_k({"c1"}, perfect, k=3) == 1.0)
+ok("S5/ndcg buried < perfect",
+   ndcg_at_k({"c1"}, buried, k=3) < ndcg_at_k({"c1"}, perfect, k=3))
+ok("S5/noise lower when gold first",
+   context_noise_rate({"c1"}, perfect, k=3)
+   < context_noise_rate({"c1"}, ["x", "y", "z"], k=3))
+ok("S5/evaluate reports ndcg for body",
+   r_good[QueryType.body].ndcg_k == 1.0)
 
 
 print(f"\n{'='*64}")

@@ -6,7 +6,7 @@ cross-encoder는 질의-청크 쌍을 함께 보고 관련도를 매겨, dense/s
 독립 인코딩보다 정밀하다. 대신 비싸므로 후보 수를 제한한다.
 
 cross-encoder 모델은 어댑터(CrossEncoder Protocol) 뒤로 — GPU·모델 의존.
-실제론 self-host reranker 서버(reranker_server_url) 호출.
+운영: HttpCrossEncoder(RERANKER_SERVER_URL) 또는 LexicalCrossEncoder 폴백.
 """
 from __future__ import annotations
 
