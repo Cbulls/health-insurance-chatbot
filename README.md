@@ -87,6 +87,7 @@ BASE=http://localhost:8000 python scripts/smoke.py
 | POST | `/v1/documents` | PDF 업로드(multipart). 202 + `document_id`. 비동기 처리 |
 | GET | `/v1/documents` | 내 문서 목록/상태 |
 | GET | `/v1/documents/{id}` | 특정 문서 상태(processing/ready/failed) |
+| DELETE | `/v1/documents/{id}` | 본인 문서 삭제(Qdrant 포인트 + 상태) |
 | POST | `/v1/query` | 질의 → 답변+출처(JSON) |
 | POST | `/v1/query/stream` | 질의 → SSE(token/citations/abstain/done) |
 | GET | `/health` | 헬스체크 |
@@ -102,14 +103,13 @@ BASE=http://localhost:8000 python scripts/smoke.py
 엔터프라이즈 상세는
 [앞으로 해야 할 것들/PRODUCTION_ROADMAP.md](앞으로%20해야%20할%20것들/PRODUCTION_ROADMAP.md).
 
-코드 다음 타석(요약): 문서 삭제 API → 하이브리드(dense+sparse) 검색 → 문서 상태 DB →
-HWP PoC → 큐/워커.
+코드 다음 타석(요약): 구조화 인용 → HWP PoC → 큐/워커.
 
 ## 한계 (정직한 경계)
 
-- MVP 검색은 dense 단독이라 한국어 recall이 하이브리드보다 낮다.
-- 인메모리 문서 상태(수집 레코드)는 단일 프로세스 가정 — 재시작 시 목록 유실 가능.
-- **문서 삭제 API 없음** — 용량 한도 시 Qdrant 콘솔에서 삭제.
+- 하이브리드는 **신규 컬렉션**에서 활성. 기존 dense-only 컬렉션은 dense 폴백(경고 로그).
+- 문서 목록은 SQLite(`./data/harag.db`) 또는 `DATABASE_URL` Postgres에 영속화. 예전 인메모리만 쓰던 목록은 재업로드 필요.
+- 문서 삭제: `DELETE /v1/documents/{id}` 또는 UI 삭제 버튼.
 - 스캔(이미지) PDF는 텍스트 추출 불가 → `failed` (OCR 미구현).
 - 로컬 폴백 임베딩/LLM은 데모용. 운영은 API 키 필요.
 

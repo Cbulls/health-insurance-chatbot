@@ -8,7 +8,12 @@ CTO 리뷰 반영(원 qdrant_store.py 대비 수정):
   - 포인트 id를 chunk_id 기반 결정적 UUID로 → 재인덱싱 시 멱등 upsert.
   - 쿼리 임베딩을 적재와 '동일 모델'로 통일(더미 규칙 제거).
 
-Phase 2: 하이브리드(dense+sparse)+RRF, 버전 태깅/원자적 전환/GC, 결정적 sparse 해시.
+Phase 2: 버전 태깅·원자적 전환·GC.
+
+하이브리드(dense+sparse RRF):
+  - 적재 시 HybridEmbedder가 만든 sparse_terms를 Qdrant sparse 벡터로 저장
+  - 검색 시 dense+sparse prefetch → FusionQuery(RRF)
+  - sparse 없는 기존 컬렉션은 dense 전용으로 폴백(재생성 시 하이브리드 활성)
 
 무료 사양(Qdrant Cloud free: 1GiB RAM, 4GiB disk, 0.5 vCPU) 대응:
   - 원격 모드 컬렉션은 벡터·HNSW·payload를 디스크에 두고(int8 양자화본만 RAM),
@@ -28,6 +33,7 @@ from qdrant_client import QdrantClient, models
 from harag.contracts.boundaries import (
     Chunk, EmbeddedChunk, ScoredChunk, AuthContext,
 )
+from harag.embedding.api_embedder import hash_str, SimpleMorph
 from harag.schemas.chunk import ChunkMetadata
 
 logger = logging.getLogger("harag.qdrant")
@@ -39,6 +45,21 @@ _VECTOR_OVERHEAD = 1.5
 _WARN_THRESHOLD = 0.8  # 공식 모니터링의 디스크 80% 경고선과 동일
 
 
+def _sparse_index(term: str) -> int:
+    """결정적 sparse 인덱스 — 프로세스 무관(blake2b). 적재·질의 동일 규칙."""
+    return hash_str(term) % (2 ** 31)
+
+
+def _to_sparse_vector(terms: dict[str, float]) -> models.SparseVector:
+    if not terms:
+        return models.SparseVector(indices=[], values=[])
+    indices, values = [], []
+    for term, weight in terms.items():
+        indices.append(_sparse_index(term))
+        values.append(float(weight))
+    return models.SparseVector(indices=indices, values=values)
+
+
 class CapacityExceededError(Exception):
     """디스크 예산 초과 — 인덱싱 거부(무료 사양 한도 보호)."""
 
@@ -46,7 +67,8 @@ class CapacityExceededError(Exception):
 class QdrantVectorStore:
     def __init__(self, embedding_model, dim: int, collection: str = "harag_pdf_mvp",
                  url: str | None = None, api_key: str | None = None,
-                 disk_budget_mb: int = 0, payload_bytes_per_point: int = 2048):
+                 disk_budget_mb: int = 0, payload_bytes_per_point: int = 2048,
+                 morph=None, hybrid: bool = True):
         # url 없으면 인메모리(개발). 운영은 url로 실제 클러스터(Cloud는 api_key 필수).
         self._remote = bool(url)
         self.client = (QdrantClient(url=url, api_key=api_key or None)
@@ -54,6 +76,9 @@ class QdrantVectorStore:
         self.coll = collection
         self._dim = dim
         self._embed = embedding_model
+        self._morph = morph or SimpleMorph()
+        self._want_hybrid = hybrid
+        self._hybrid = False  # _ensure_collection에서 실제 활성 여부 결정
         self._max_points = self._compute_max_points(
             disk_budget_mb, dim, payload_bytes_per_point)
         # 쿼리 오프로드(to_thread)+인제스트 스레드풀로 client가 여러 스레드에서
@@ -65,6 +90,9 @@ class QdrantVectorStore:
         if self._max_points > 0:
             logger.info("capacity guard: disk_budget=%dMB dim=%d → max_points=%d",
                         disk_budget_mb, dim, self._max_points)
+        logger.info("search mode: %s (collection=%s)",
+                    "hybrid(dense+sparse RRF)" if self._hybrid else "dense-only",
+                    self.coll)
 
     @staticmethod
     def _compute_max_points(budget_mb: int, dim: int,
@@ -82,35 +110,46 @@ class QdrantVectorStore:
     def _ensure_collection(self) -> None:
         if self.client.collection_exists(self.coll):
             self._verify_existing_dim()
+            self._hybrid = self._want_hybrid and self._collection_has_sparse()
+            if self._want_hybrid and not self._hybrid:
+                logger.warning(
+                    "컬렉션 '%s'에 sparse 벡터가 없어 dense 전용으로 동작합니다. "
+                    "하이브리드를 쓰려면 컬렉션을 삭제하거나 QDRANT_COLLECTION을 "
+                    "새 이름으로 바꾼 뒤 재인덱싱하세요.", self.coll)
             return
+
+        dense_params = models.VectorParams(
+            size=self._dim, distance=models.Distance.COSINE,
+            **({"on_disk": True} if self._remote else {}))
+        create_kwargs: dict = {
+            "collection_name": self.coll,
+            "vectors_config": {"dense": dense_params},
+        }
+        if self._want_hybrid:
+            create_kwargs["sparse_vectors_config"] = {
+                "sparse": models.SparseVectorParams()}
+
         if self._remote:
-            # 저자원(무료 사양) 구성: 원본 벡터·HNSW 그래프·payload는 디스크(mmap),
+            # 저자원(무료 사양) 구성: 원본 벡터·HNSW·payload는 디스크(mmap),
             # RAM에는 int8 양자화본만 상주(4배 압축) → 1GiB RAM에서 안정 동작.
-            # 주의: 이 설정은 '컬렉션 생성 시'에만 적용된다. 기존 컬렉션에 적용하려면
-            # 삭제 후 재인덱싱이 필요하다.
-            self.client.create_collection(
-                collection_name=self.coll,
-                vectors_config={"dense": models.VectorParams(
-                    size=self._dim, distance=models.Distance.COSINE,
-                    on_disk=True)},
+            create_kwargs.update(
                 on_disk_payload=True,
                 hnsw_config=models.HnswConfigDiff(m=16, on_disk=True),
                 quantization_config=models.ScalarQuantization(
                     scalar=models.ScalarQuantizationConfig(
                         type=models.ScalarType.INT8, quantile=0.99,
                         always_ram=True)),
-                # 0.5 vCPU에서 백그라운드 세그먼트 병합 부하 최소화
                 optimizers_config=models.OptimizersConfigDiff(
                     default_segment_number=1),
             )
-            logger.info("collection %s created (low-resource: on_disk vectors/"
-                        "payload/hnsw + int8 quantization)", self.coll)
+            self.client.create_collection(**create_kwargs)
+            logger.info("collection %s created (low-resource + %s)",
+                        self.coll,
+                        "hybrid sparse" if self._want_hybrid else "dense-only")
         else:
-            self.client.create_collection(
-                collection_name=self.coll,
-                vectors_config={"dense": models.VectorParams(
-                    size=self._dim, distance=models.Distance.COSINE)},
-            )
+            self.client.create_collection(**create_kwargs)
+
+        self._hybrid = self._want_hybrid
         # owner/ACL 필터 성능·정확도용 keyword 인덱스
         try:
             self.client.create_payload_index(
@@ -119,6 +158,18 @@ class QdrantVectorStore:
                 self.coll, "document_id", models.PayloadSchemaType.KEYWORD)
         except Exception:  # noqa: BLE001 — 인덱스 없어도 필터는 동작
             pass
+
+    def _collection_has_sparse(self) -> bool:
+        try:
+            info = self.client.get_collection(self.coll)
+            sparse = getattr(info.config.params, "sparse_vectors", None)
+            if sparse is None:
+                return False
+            if isinstance(sparse, dict):
+                return "sparse" in sparse
+            return bool(sparse)
+        except Exception:  # noqa: BLE001
+            return False
 
     def _verify_existing_dim(self) -> None:
         """기존 컬렉션의 dense 차원이 설정과 다르면 즉시 실패(fail-fast).
@@ -174,6 +225,7 @@ class QdrantVectorStore:
             "points": current,
             "max_points": self._max_points,
             "used_pct": round(current * 100 / self._max_points, 1),
+            "hybrid": self._hybrid,
         }
 
     # ── 적재 ──
@@ -183,13 +235,16 @@ class QdrantVectorStore:
         points = []
         for ec in embedded:
             meta = ec.chunk.meta
+            vector: dict = {"dense": ec.dense_vector}
+            if self._hybrid:
+                vector["sparse"] = _to_sparse_vector(ec.sparse_terms or {})
             points.append(models.PointStruct(
                 # chunk_id만 쓰면 같은 PDF를 다른 owner가 올릴 때 포인트가
                 # 덮어써져 ACL이 바뀐다. owner 태그를 id에 넣어 격리·멱등을 유지.
                 id=str(uuid.uuid5(
                     _NAMESPACE,
                     f"{meta.chunk_id}|{','.join(sorted(meta.acl_tags))}")),
-                vector={"dense": ec.dense_vector},
+                vector=vector,
                 payload={
                     "chunk_id": meta.chunk_id,
                     "document_id": meta.document_id,
@@ -203,16 +258,62 @@ class QdrantVectorStore:
                 self.client.upsert(self.coll, points=points)
         return len(points)
 
-    # ── 검색(dense + owner/ACL pre-filter) ──
+    def delete_document(self, document_id: str, acl_tags: list[str]) -> int:
+        """owner ACL로 격리된 문서 포인트를 삭제. 삭제된 포인트 수를 반환."""
+        flt = models.Filter(must=[
+            models.FieldCondition(
+                key="document_id", match=models.MatchValue(value=document_id)),
+            models.FieldCondition(
+                key="acl_tags", match=models.MatchAny(any=list(acl_tags))),
+        ])
+        with self._lock:
+            n = self.client.count(self.coll, count_filter=flt, exact=True).count
+            if n > 0:
+                self.client.delete(
+                    collection_name=self.coll,
+                    points_selector=models.FilterSelector(filter=flt),
+                )
+        logger.info("deleted document %s: %d points", document_id, n)
+        return int(n)
+
+    def _query_sparse(self, query: str) -> models.SparseVector:
+        from collections import Counter
+        toks = self._morph.tokens(query)
+        if not toks:
+            return models.SparseVector(indices=[], values=[])
+        return _to_sparse_vector({t: float(c) for t, c in Counter(toks).items()})
+
+    # ── 검색(dense 또는 hybrid RRF + owner/ACL pre-filter) ──
     def retrieve(self, query: str, auth: AuthContext, k: int = 10) -> list[ScoredChunk]:
         dense = self._embed.encode([query])[0]
         flt = models.Filter(must=[models.FieldCondition(
             key="acl_tags", match=models.MatchAny(any=list(auth.acl_tags)))])
+
         with self._lock:
-            res = self.client.query_points(
-                collection_name=self.coll, query=dense, using="dense",
-                query_filter=flt, limit=k, with_payload=True,
-            ).points
+            if self._hybrid:
+                sparse = self._query_sparse(query)
+                if sparse.indices:
+                    res = self.client.query_points(
+                        collection_name=self.coll,
+                        prefetch=[
+                            models.Prefetch(
+                                query=dense, using="dense", filter=flt, limit=k * 2),
+                            models.Prefetch(
+                                query=sparse, using="sparse", filter=flt, limit=k * 2),
+                        ],
+                        query=models.FusionQuery(fusion=models.Fusion.RRF),
+                        limit=k, with_payload=True,
+                    ).points
+                else:
+                    res = self.client.query_points(
+                        collection_name=self.coll, query=dense, using="dense",
+                        query_filter=flt, limit=k, with_payload=True,
+                    ).points
+            else:
+                res = self.client.query_points(
+                    collection_name=self.coll, query=dense, using="dense",
+                    query_filter=flt, limit=k, with_payload=True,
+                ).points
 
         out: list[ScoredChunk] = []
         for p in res:

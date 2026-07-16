@@ -120,6 +120,11 @@ class Settings:
     auth_jwt_audience: str
     auth_jwt_issuer: str
 
+    # ── 문서 등록부(메타 DB) ──
+    # 기본: sqlite:///./data/harag.db. PostgreSQL 예:
+    #   postgresql+psycopg://harag:harag@localhost:5432/harag
+    database_url: str
+
     @property
     def qdrant_url_or_none(self) -> str | None:
         return self.qdrant_url or None
@@ -170,4 +175,6 @@ def get_settings() -> Settings:
         auth_jwt_algorithms=_split_csv(_get("AUTH_JWT_ALGORITHMS", "HS256")),
         auth_jwt_audience=_get("AUTH_JWT_AUDIENCE", ""),
         auth_jwt_issuer=_get("AUTH_JWT_ISSUER", ""),
+        database_url=_get("DATABASE_URL", "sqlite:///./data/harag.db")
+                       or "sqlite:///./data/harag.db",
     )

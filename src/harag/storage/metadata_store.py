@@ -1,26 +1,25 @@
 """
-PostgreSQL 메타데이터 저장소 — 운영 메타의 진실 원천(설계 §4.1).
+문서 메타데이터 저장소 — 운영 메타의 진실 원천(설계 §4.1).
 
-벡터=Qdrant, 원본=오브젝트 스토리지, 운영 메타=여기(PG).
-SQLAlchemy 2.0 ORM으로 스키마 정의 → 운영은 postgresql:// DSN, 검증은 sqlite 인메모리.
-같은 코드가 양쪽에서 동작(방언 차이는 SQLAlchemy가 흡수).
+벡터=Qdrant, 원본=오브젝트 스토리지, 운영 메타=여기(SQLite 기본 / PostgreSQL 선택).
+SQLAlchemy 2.0 ORM. 기본 DSN은 sqlite 파일, DATABASE_URL이 있으면 Postgres.
 
 테이블:
-  documents       문서 등록부(상태·활성 버전)
-  doc_versions    버전 이력(시각·청크 수·품질)
-  audit_logs      감사 로그(업로드·질의·외부 유출)
+  documents       문서 등록부(owner 스코프, 상태·청크 수)
+  doc_versions    버전 이력
+  audit_logs      감사 로그
 
-Qdrant의 활성 버전 포인터와 documents.active_version이 일관해야 한다.
-PG가 진실 원천, Qdrant는 검색 인덱스.
+PK는 (uploaded_by, document_id) — MVP owner 격리와 일치.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from sqlalchemy import (
-    create_engine, String, Integer, Float, DateTime, Text, select, func
+    create_engine, String, Integer, Float, DateTime, Text, select,
 )
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, Session
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, Session, sessionmaker
 
 
 class Base(DeclarativeBase):
@@ -29,12 +28,13 @@ class Base(DeclarativeBase):
 
 class Document(Base):
     __tablename__ = "documents"
+    uploaded_by: Mapped[str] = mapped_column(String(128), primary_key=True)
     document_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     filename: Mapped[str] = mapped_column(String(512))
-    department: Mapped[str] = mapped_column(String(128), index=True)
-    uploaded_by: Mapped[str] = mapped_column(String(128))
+    department: Mapped[str] = mapped_column(String(128), index=True, default="")
     status: Mapped[str] = mapped_column(String(32), default="registered")
     active_version: Mapped[int] = mapped_column(Integer, default=0)
+    n_chunks: Mapped[int] = mapped_column(Integer, default=0)
     status_reason: Mapped[str] = mapped_column(String(256), default="")
     updated_at: Mapped[datetime] = mapped_column(DateTime)
 
@@ -52,90 +52,247 @@ class DocVersion(Base):
 class AuditLog(Base):
     __tablename__ = "audit_logs"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    event: Mapped[str] = mapped_column(String(32), index=True)  # upload/query/egress
+    event: Mapped[str] = mapped_column(String(32), index=True)
     user_id: Mapped[str] = mapped_column(String(128))
     detail: Mapped[str] = mapped_column(Text)
     trace_id: Mapped[str] = mapped_column(String(64), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime)
 
 
+@dataclass(frozen=True)
+class DocumentRecord:
+    """세션 밖에서도 안전한 문서 스냅샷(DetachedInstanceError 방지)."""
+    document_id: str
+    filename: str
+    uploaded_by: str
+    status: str
+    n_chunks: int = 0
+    department: str = ""
+    active_version: int = 0
+    status_reason: str = ""
+    updated_at: datetime | None = None
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _to_record(doc: Document) -> DocumentRecord:
+    return DocumentRecord(
+        document_id=doc.document_id,
+        filename=doc.filename,
+        uploaded_by=doc.uploaded_by,
+        status=doc.status,
+        n_chunks=int(doc.n_chunks or 0),
+        department=doc.department or "",
+        active_version=int(doc.active_version or 0),
+        status_reason=doc.status_reason or "",
+        updated_at=doc.updated_at,
+    )
+
+
 class MetadataStore:
     def __init__(self, dsn: str = "sqlite:///:memory:"):
-        # 운영: postgresql+psycopg://user:pw@host/db
-        self._engine = create_engine(dsn, future=True)
+        # 운영 PG: postgresql+psycopg://user:pw@host/db
+        # 기본 로컬: sqlite:///./data/harag.db
+        connect_args = {"check_same_thread": False} if dsn.startswith("sqlite") else {}
+        self._engine = create_engine(dsn, future=True, connect_args=connect_args)
         Base.metadata.create_all(self._engine)
+        self._Session = sessionmaker(
+            self._engine, expire_on_commit=False, future=True,
+        )
 
-    # ── 문서 등록부 ──
-    def register_document(self, document_id: str, filename: str,
-                          department: str, uploaded_by: str) -> None:
-        with Session(self._engine) as s:
-            doc = s.get(Document, document_id)
-            if doc is None:                       # 멱등: 있으면 갱신
-                doc = Document(document_id=document_id)
-                s.add(doc)
-            doc.filename = filename
-            doc.department = department
-            doc.uploaded_by = uploaded_by
+    def _session(self) -> Session:
+        return self._Session()
+
+    def _get(self, s: Session, document_id: str, uploaded_by: str) -> Document | None:
+        return s.get(Document, (uploaded_by, document_id))
+
+    # ── 라이브 ingest용 owner 스코프 API ──
+    def register_for_owner(
+        self, document_id: str, filename: str, owner: str,
+    ) -> str:
+        """등록. ready/processing이면 'duplicate', 신규·failed 재시도면 'accepted'."""
+        with self._session() as s:
+            doc = self._get(s, document_id, owner)
+            if doc is not None:
+                if doc.status in ("ready", "processing"):
+                    return "duplicate"
+                # failed → 재업로드 허용
+                doc.filename = filename
+                doc.status = "processing"
+                doc.status_reason = ""
+                doc.n_chunks = 0
+                doc.updated_at = _now()
+                s.commit()
+            else:
+                s.add(Document(
+                    uploaded_by=owner,
+                    document_id=document_id,
+                    filename=filename,
+                    department="",
+                    status="processing",
+                    active_version=0,
+                    n_chunks=0,
+                    status_reason="",
+                    updated_at=_now(),
+                ))
+                s.commit()
+        self.log_audit(
+            event="upload", user_id=owner,
+            detail=f"register {document_id} {filename}",
+            trace_id=document_id,
+        )
+        return "accepted"
+
+    def get_for_owner(self, document_id: str, owner: str) -> DocumentRecord | None:
+        with self._session() as s:
+            doc = self._get(s, document_id, owner)
+            return _to_record(doc) if doc else None
+
+    def list_for_owner(self, owner: str) -> list[DocumentRecord]:
+        with self._session() as s:
+            rows = list(s.scalars(
+                select(Document).where(Document.uploaded_by == owner)
+                .order_by(Document.updated_at.desc())
+            ))
+            return [_to_record(d) for d in rows]
+
+    def delete_for_owner(self, document_id: str, owner: str) -> bool:
+        with self._session() as s:
+            doc = self._get(s, document_id, owner)
+            if doc is None:
+                return False
+            s.delete(doc)
+            s.commit()
+        self.log_audit(
+            event="delete", user_id=owner,
+            detail=f"delete {document_id}",
+            trace_id=document_id,
+        )
+        return True
+
+    def mark_ready(self, document_id: str, owner: str, n_chunks: int) -> None:
+        with self._session() as s:
+            doc = self._get(s, document_id, owner)
+            if doc is None:
+                return
+            doc.status = "ready"
+            doc.n_chunks = int(n_chunks)
+            doc.active_version = max(doc.active_version, 1)
+            doc.status_reason = ""
+            doc.updated_at = _now()
+            s.commit()
+        self.record_version(
+            document_id, version=1, chunk_count=n_chunks, table_recovery=0.0,
+        )
+
+    def mark_failed(self, document_id: str, owner: str, reason: str) -> None:
+        with self._session() as s:
+            doc = self._get(s, document_id, owner)
+            if doc is None:
+                return
+            doc.status = "failed"
+            doc.status_reason = (reason or "")[:256]
             doc.updated_at = _now()
             s.commit()
 
-    def get_document(self, document_id: str) -> Document | None:
-        with Session(self._engine) as s:
-            return s.get(Document, document_id)
+    def mark_processing(self, document_id: str, owner: str) -> None:
+        with self._session() as s:
+            doc = self._get(s, document_id, owner)
+            if doc is None:
+                return
+            doc.status = "processing"
+            doc.status_reason = ""
+            doc.updated_at = _now()
+            s.commit()
 
-    def update_status(self, document_id: str, status: str, reason: str = "") -> None:
-        with Session(self._engine) as s:
-            doc = s.get(Document, document_id)
+    # ── 워커/레거시 API (uploaded_by 포함) ──
+    def register_document(self, document_id: str, filename: str,
+                          department: str, uploaded_by: str) -> None:
+        with self._session() as s:
+            doc = self._get(s, document_id, uploaded_by)
+            if doc is None:
+                doc = Document(
+                    uploaded_by=uploaded_by,
+                    document_id=document_id,
+                    filename=filename,
+                    department=department,
+                    status="registered",
+                    updated_at=_now(),
+                )
+                s.add(doc)
+            else:
+                doc.filename = filename
+                doc.department = department
+                doc.updated_at = _now()
+            s.commit()
+
+    def get_document(self, document_id: str,
+                     uploaded_by: str = "") -> DocumentRecord | None:
+        with self._session() as s:
+            doc = self._get(s, document_id, uploaded_by)
+            return _to_record(doc) if doc else None
+
+    def update_status(self, document_id: str, status: str,
+                      reason: str = "", uploaded_by: str = "") -> None:
+        with self._session() as s:
+            doc = self._get(s, document_id, uploaded_by)
             if doc:
                 doc.status = status
                 doc.status_reason = reason
                 doc.updated_at = _now()
                 s.commit()
 
-    def set_active_version(self, document_id: str, version: int) -> None:
-        with Session(self._engine) as s:
-            doc = s.get(Document, document_id)
+    def set_active_version(self, document_id: str, version: int,
+                           uploaded_by: str = "") -> None:
+        with self._session() as s:
+            doc = self._get(s, document_id, uploaded_by)
             if doc:
                 doc.active_version = version
                 doc.status = "indexed"
                 doc.updated_at = _now()
                 s.commit()
 
-    def list_documents(self, department: str | None = None) -> list[Document]:
-        with Session(self._engine) as s:
+    def list_documents(self, department: str | None = None,
+                       uploaded_by: str | None = None) -> list[DocumentRecord]:
+        with self._session() as s:
             stmt = select(Document)
             if department:
                 stmt = stmt.where(Document.department == department)
-            return list(s.scalars(stmt))
+            if uploaded_by is not None:
+                stmt = stmt.where(Document.uploaded_by == uploaded_by)
+            return [_to_record(d) for d in s.scalars(stmt)]
 
     # ── 버전 이력 ──
     def record_version(self, document_id: str, version: int,
                        chunk_count: int, table_recovery: float) -> None:
-        with Session(self._engine) as s:
-            s.add(DocVersion(document_id=document_id, version=version,
-                             chunk_count=chunk_count, table_recovery=table_recovery,
-                             indexed_at=_now()))
+        with self._session() as s:
+            s.add(DocVersion(
+                document_id=document_id, version=version,
+                chunk_count=chunk_count, table_recovery=table_recovery,
+                indexed_at=_now(),
+            ))
             s.commit()
 
     def get_version_history(self, document_id: str) -> list[DocVersion]:
-        with Session(self._engine) as s:
+        with self._session() as s:
             return list(s.scalars(
                 select(DocVersion).where(DocVersion.document_id == document_id)
-                .order_by(DocVersion.version)))
+                .order_by(DocVersion.version)
+            ))
 
     # ── 감사 로그 ──
     def log_audit(self, event: str, user_id: str, detail: str, trace_id: str) -> None:
-        with Session(self._engine) as s:
-            s.add(AuditLog(event=event, user_id=user_id, detail=detail,
-                           trace_id=trace_id, created_at=_now()))
+        with self._session() as s:
+            s.add(AuditLog(
+                event=event, user_id=user_id, detail=detail,
+                trace_id=trace_id, created_at=_now(),
+            ))
             s.commit()
 
     def get_audit_logs(self, event: str | None = None) -> list[AuditLog]:
-        with Session(self._engine) as s:
+        with self._session() as s:
             stmt = select(AuditLog)
             if event:
                 stmt = stmt.where(AuditLog.event == event)

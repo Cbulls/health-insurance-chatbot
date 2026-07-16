@@ -37,3 +37,9 @@ class DocumentStatus(BaseModel):
     filename: str
     n_chunks: int = 0
     error: Optional[str] = None
+
+
+class DeleteResponse(BaseModel):
+    document_id: str
+    status: str = "deleted"
+    trace_id: str = ""

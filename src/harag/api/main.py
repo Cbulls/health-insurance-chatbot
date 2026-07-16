@@ -42,8 +42,18 @@ def _build_and_inject() -> None:
     from harag.api.pipeline import QueryPipelineImpl
     from harag.api.ingest import InProcessIngest
     from harag.api.deps import set_query_pipeline, set_ingest, set_vector_store
+    from harag.storage.metadata_store import MetadataStore
 
     settings = get_settings()
+
+    # 문서 등록부: SQLite 파일이면 data/ 보장. DATABASE_URL로 Postgres 전환 가능.
+    db_url = settings.database_url
+    if db_url.startswith("sqlite:///./") or db_url.startswith("sqlite:///"):
+        # sqlite:///./data/harag.db → ./data
+        raw_path = db_url.removeprefix("sqlite:///")
+        if raw_path and raw_path != ":memory:":
+            Path(raw_path).parent.mkdir(parents=True, exist_ok=True)
+    metadata = MetadataStore(dsn=db_url)
 
     embedding_model = build_embedding_model(settings)
     embedder = HybridEmbedder(embedding_model, SimpleMorph())
@@ -88,16 +98,18 @@ def _build_and_inject() -> None:
                                  top_k=settings.top_k)
     ingest = InProcessIngest(
         parser=PdfParser(), chunker=StructuralChunker(),
-        embedder=embedder, store=store)
+        embedder=embedder, store=store, metadata=metadata)
 
     set_query_pipeline(pipeline)
     set_ingest(ingest)
     set_vector_store(store)
 
-    logger.info("assembled: embedding=%s(dim=%d) llm=%s qdrant=%s rerank=lexical rewrite=%s",
-                embedding_model.model_id, embedding_model.dim,
-                settings.llm_provider, settings.qdrant_url or ":memory:",
-                type(rewrite_llm).__name__)
+    logger.info(
+        "assembled: embedding=%s(dim=%d) llm=%s qdrant=%s db=%s rerank=lexical rewrite=%s",
+        embedding_model.model_id, embedding_model.dim,
+        settings.llm_provider, settings.qdrant_url or ":memory:",
+        "sqlite" if db_url.startswith("sqlite") else "postgres",
+        type(rewrite_llm).__name__)
 
 
 @asynccontextmanager

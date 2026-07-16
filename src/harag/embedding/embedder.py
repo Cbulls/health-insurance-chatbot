@@ -1,8 +1,8 @@
 """
 임베더 — 청크를 dense(+sparse) 벡터로.
 
-MVP: dense만 검색에 사용(관리형 임베딩 API 또는 로컬 폴백).
-sparse(형태소 BM25)는 Phase 2에서 하이브리드+RRF와 함께 활성화.
+MVP: dense + sparse(형태소 토큰 가중치)를 EmbeddedChunk에 채운다.
+검색은 Qdrant dense+sparse RRF 하이브리드(컬렉션에 sparse가 있을 때).
 dense/sparse 생성 로직은 어댑터(EmbeddingModel/Morph) 뒤로 분리한다.
 """
 from __future__ import annotations
@@ -21,7 +21,7 @@ class EmbeddingModel(Protocol):
 
 
 class Morph(Protocol):
-    """형태소 분석기. text -> 어간 토큰 목록(sparse용, Phase 2)."""
+    """형태소 분석기. text -> 어간 토큰 목록(sparse용)."""
     def tokens(self, text: str) -> list[str]: ...
 
 

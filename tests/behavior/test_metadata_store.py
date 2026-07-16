@@ -26,7 +26,7 @@ def test_MD01_register_document():
     s = _store()
     s.register_document(document_id="doc1", filename="규정.hwp",
                         department="finance", uploaded_by="admin")
-    doc = s.get_document("doc1")
+    doc = s.get_document("doc1", uploaded_by="admin")
     assert doc is not None
     assert doc.filename == "규정.hwp"
     assert doc.department == "finance"
@@ -37,8 +37,8 @@ def test_MD02_record_version_and_activate():
     s = _store()
     s.register_document("doc1", "규정.hwp", "finance", "admin")
     s.record_version("doc1", version=1, chunk_count=10, table_recovery=0.95)
-    s.set_active_version("doc1", 1)
-    doc = s.get_document("doc1")
+    s.set_active_version("doc1", 1, uploaded_by="admin")
+    doc = s.get_document("doc1", uploaded_by="admin")
     assert doc.active_version == 1
 
 
@@ -57,8 +57,8 @@ def test_MD04_update_status_quarantine():
     """파싱 실패 → 상태 quarantined 기록."""
     s = _store()
     s.register_document("doc1", "규정.hwp", "finance", "admin")
-    s.update_status("doc1", "quarantined", reason="parse_failed")
-    doc = s.get_document("doc1")
+    s.update_status("doc1", "quarantined", reason="parse_failed", uploaded_by="admin")
+    doc = s.get_document("doc1", uploaded_by="admin")
     assert doc.status == "quarantined"
 
 
@@ -91,13 +91,49 @@ def test_MD07_list_documents_by_department():
 
 
 def test_MD08_register_idempotent():
-    """같은 document_id 재등록 → 갱신(멱등, 중복 행 없음)."""
+    """같은 (owner, document_id) 재등록 → 갱신(멱등, 중복 행 없음)."""
     s = _store()
     s.register_document("doc1", "규정.hwp", "finance", "admin")
     s.register_document("doc1", "규정_개정.hwp", "finance", "admin")
     docs = s.list_documents(department="finance")
     assert len(docs) == 1, "중복 등록으로 행이 늘어남"
-    assert s.get_document("doc1").filename == "규정_개정.hwp"
+    assert s.get_document("doc1", uploaded_by="admin").filename == "규정_개정.hwp"
+
+
+def test_MD09_owner_scoped_register_ready_list_delete():
+    """owner 스코프: 등록 멱등, ready/failed, 목록 격리, 삭제."""
+    s = _store()
+    assert s.register_for_owner("doc1", "a.pdf", "u1") == "accepted"
+    assert s.register_for_owner("doc1", "a.pdf", "u1") == "duplicate"
+    # 다른 owner는 같은 document_id 가능
+    assert s.register_for_owner("doc1", "a.pdf", "u2") == "accepted"
+
+    s.mark_ready("doc1", "u1", n_chunks=3)
+    rec = s.get_for_owner("doc1", "u1")
+    assert rec is not None
+    assert rec.status == "ready"
+    assert rec.n_chunks == 3
+
+    s.mark_failed("doc1", "u2", "parse_failed")
+    assert s.get_for_owner("doc1", "u2").status == "failed"
+
+    assert {r.document_id for r in s.list_for_owner("u1")} == {"doc1"}
+    assert s.list_for_owner("u1")[0].status == "ready"
+    assert s.list_for_owner("u3") == []
+
+    assert s.delete_for_owner("doc1", "u1") is True
+    assert s.get_for_owner("doc1", "u1") is None
+    assert s.get_for_owner("doc1", "u2") is not None  # 다른 owner 유지
+
+
+def test_MD10_failed_reregister_accepted():
+    """failed 문서는 재등록 가능(accepted)."""
+    s = _store()
+    s.register_for_owner("doc1", "a.pdf", "u1")
+    s.mark_failed("doc1", "u1", "boom")
+    assert s.register_for_owner("doc1", "a2.pdf", "u1") == "accepted"
+    assert s.get_for_owner("doc1", "u1").status == "processing"
+    assert s.get_for_owner("doc1", "u1").filename == "a2.pdf"
 
 
 if __name__ == "__main__":

@@ -1,6 +1,12 @@
 # harag PDF RAG MVP — 전체 기동(qdrant + api). 프론트엔드는 api가 정적 서빙.
 # 사용:  cp .env.example .env  (필요시 키 입력) →  docker compose up --build
 # 브라우저:  http://localhost:8000
+#
+# 문서 등록부 기본은 SQLite(./data/harag.db). PostgreSQL을 쓰려면:
+#   1) docker compose --profile postgres up -d postgres
+#   2) .env에 DATABASE_URL=postgresql+psycopg://harag:harag@postgres:5432/harag
+#      (호스트에서 API만 돌릴 때는 localhost:5432)
+#   3) pip install 'psycopg[binary]>=3.1' 또는 pip install -e '.[postgres]'
 services:
   qdrant:
     image: qdrant/qdrant:latest
@@ -10,6 +16,19 @@ services:
     volumes:
       - qdrant_storage:/qdrant/storage
 
+  postgres:
+    profiles: ["postgres"]
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: harag
+      POSTGRES_PASSWORD: harag
+      POSTGRES_DB: harag
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
   api:
     build: .
     restart: unless-stopped
@@ -17,6 +36,9 @@ services:
       - qdrant
     ports:
       - "8000:8000"
+    volumes:
+      # SQLite 등록부 영속화(기본 DATABASE_URL)
+      - harag_data:/app/data
     environment:
       # Qdrant 연결(컴포즈 네트워크 내부 호스트명). Qdrant Cloud를 쓰려면
       # .env에서 QDRANT_URL/QDRANT_API_KEY를 클라우드 값으로 덮어쓴다.
@@ -25,6 +47,9 @@ services:
       QDRANT_COLLECTION: ${QDRANT_COLLECTION:-harag_pdf_mvp}
       QDRANT_DISK_BUDGET_MB: ${QDRANT_DISK_BUDGET_MB:-3072}
       QDRANT_PAYLOAD_BYTES_PER_POINT: ${QDRANT_PAYLOAD_BYTES_PER_POINT:-2048}
+      # 문서 등록부. 비우면 sqlite:///./data/harag.db.
+      # Postgres 예: postgresql+psycopg://harag:harag@postgres:5432/harag
+      DATABASE_URL: ${DATABASE_URL:-sqlite:///./data/harag.db}
       EMBEDDING_SEND_DIMENSIONS: ${EMBEDDING_SEND_DIMENSIONS:-}
       LLM_REWRITE_ENABLED: ${LLM_REWRITE_ENABLED:-true}
       LLM_REWRITE_MODEL: ${LLM_REWRITE_MODEL:-}
@@ -45,3 +70,5 @@ services:
 
 volumes:
   qdrant_storage:
+  postgres_data:
+  harag_data:

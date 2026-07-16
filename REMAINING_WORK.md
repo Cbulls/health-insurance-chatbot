@@ -31,6 +31,7 @@
 | 항목 | 내용 |
 |------|------|
 | 시크릿 관리 | 키가 채팅·레포에 노출됐다면 **재발급**. 운영은 Secret Manager / GitHub Secrets / K8s Secret |
+| 문서 등록부(선택) | 기본은 SQLite. Postgres: `docker compose --profile postgres up -d postgres`, `.env`에 `DATABASE_URL=postgresql+psycopg://harag:harag@localhost:5432/harag`, `pip install -e '.[postgres]'` |
 | 도메인 골드셋 | 건강보험 질의–정답–근거 페이지 라벨링. 없으면 “정확한지”를 영영 모름 |
 | 법무/약관 | 행정문서를 외부 LLM API에 보내도 되는지, 학습 비사용 약관 확인 |
 | 모니터링 | Qdrant 디스크 80% 알림, LLM 프로바이더 쿼터 대시보드 |
@@ -42,13 +43,14 @@
 
 | 인프라 | 지금 MVP | 운영 시 |
 |--------|----------|---------|
-| 문서 메타 | 프로세스 메모리 (`InProcessIngest`) | PostgreSQL 등록부·감사 |
+| 문서 메타 | SQLite `./data/harag.db` 기본 (`DATABASE_URL`로 Postgres) | 운영 PG + 질의 audit 훅 |
 | 원본 파일 | 임시 스풀 후 삭제 | S3/MinIO 보존 |
 | 인덱싱 | 인프로세스 스레드풀 | 메시지 큐 + indexing worker |
 | 인증 | `X-Owner-Id` 또는 `AUTH_JWT_SECRET` | 조직 IdP(OIDC)가 JWT 발급 |
 | 임베딩/리랭커 | 외부 API + 어절 리랭커 | (선택) GPU self-host |
 
-재시작 시: UI 문서 **목록은 유실**될 수 있고, Qdrant **벡터는 남는다**.
+문서 목록은 DB에 영속화된다(재시작 후 유지). Postgres는 선택:
+`docker compose --profile postgres up -d postgres` + `DATABASE_URL=postgresql+psycopg://...`.
 
 ---
 
@@ -59,10 +61,13 @@
 
 ### P0 — 품질·운영 체감에 바로 영향
 
-1. **문서 삭제 API** — `capacity_exceeded` 시 UI가 “삭제하라”고 하지만 삭제 엔드포인트 없음. Qdrant 콘솔에서만 가능.
-2. **하이브리드 검색 연결** — `storage/qdrant_store.py`(dense+sparse RRF)를 라이브 경로에 통합. Kiwi 형태소 + 결정적 sparse. dense 단독은 한국어 recall 한계.
-3. **문서 상태 영속화** — `InProcessIngest._records` → PostgreSQL. 재시작·다중 인스턴스.
+1. ~~**문서 삭제 API**~~ — `DELETE /v1/documents/{id}` + UI 삭제 버튼 (완료)
+2. ~~**하이브리드 검색 연결**~~ — dense+sparse RRF (신규 컬렉션). 기존 dense-only 컬렉션은 폴백 (완료)
+3. ~~**문서 상태 영속화**~~ — `MetadataStore` + SQLite 기본 / `DATABASE_URL` Postgres (완료)
 4. **인용 강화** — LLM `citations=[]`라 검색 청크를 출처로 노출. 구조화 인용(청크 ID)으로 강화.
+
+> 하이브리드를 Qdrant Cloud에서 쓰려면 sparse가 포함된 **새 컬렉션**이 필요합니다
+> (예: `QDRANT_COLLECTION=harag_hybrid_768`). 기존 dense-only 컬렉션은 dense로만 검색합니다.
 
 ### P1 — 설계상 Phase 2 (엔터프라이즈)
 
@@ -89,11 +94,11 @@
 
 | 구분 | 요약 |
 |------|------|
-| **지금 바로 쓰기** | `.env` 유지, 텍스트 PDF 업로드, 쿼터·디스크 모니터링. 문서 삭제는 Qdrant 콘솔 |
+| **지금 바로 쓰기** | `.env` 유지, 텍스트 PDF 업로드, 쿼터·디스크 모니터링. 용량 부족 시 UI에서 문서 삭제 |
 | **사용자 구축** | 시크릿, (운영 시) PG·S3·큐·IdP, 골드셋, HWP면 HWPX 정책, 법무 |
-| **코드 다음 타석** | ① 문서 삭제 API ② 하이브리드 검색 배선 ③ 문서 상태 DB ④ HWP PoC ⑤ 큐/워커 |
+| **코드 다음 타석** | ① 인용 강화 ② HWP PoC ③ 큐/워커 ④ 질의 audit |
 
 다음 구현 스프린트 후보:
 
-- **「삭제 API + 하이브리드 검색」** — 용량 운영 + 한국어 recall
-- **「PostgreSQL 문서 등록부」** — 재시작·다중 인스턴스
+- **「구조화 인용 + HWP PoC」** — 답변 품질·행정문서 포맷
+- **「질의 audit + 다중 인스턴스」** — 감사 로그·공유 DB 운영

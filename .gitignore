@@ -15,6 +15,9 @@ env/
 # Qdrant 로컬 스토리지
 qdrant_storage/
 
+# 문서 등록부(SQLite 기본)
+data/
+
 # OS
 .DS_Store
 

@@ -17,7 +17,7 @@ from fastapi import (
 from harag.api.auth import require_auth
 from harag.api.middleware import current_trace_id
 from harag.api.ratelimit import enforce_rate_limit
-from harag.api.schemas import IngestResponse, DocumentStatus
+from harag.api.schemas import IngestResponse, DocumentStatus, DeleteResponse
 from harag.config.settings import get_settings
 from harag.contracts.boundaries import AuthContext
 
@@ -125,3 +125,19 @@ async def document_status(document_id: str,
     return DocumentStatus(document_id=rec.document_id, status=rec.status,
                           filename=rec.filename, n_chunks=rec.n_chunks,
                           error=rec.error)
+
+
+@router.delete("/documents/{document_id}", response_model=DeleteResponse)
+async def delete_document(document_id: str,
+                          auth: AuthContext = Depends(require_auth)):
+    """본인 문서를 삭제(Qdrant 포인트 + 상태). 용량 한도 회수용."""
+    from harag.api.deps import get_ingest
+    ingest = get_ingest()
+    result = ingest.delete(document_id, auth.user_id)
+    if result == "not_found":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    if result == "busy":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT,
+                            detail="문서가 아직 처리 중입니다. 완료 후 다시 시도하세요.")
+    return DeleteResponse(document_id=document_id, status="deleted",
+                          trace_id=current_trace_id())

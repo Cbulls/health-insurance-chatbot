@@ -130,16 +130,64 @@ async function refreshDocs() {
     docs.forEach((d) => {
       const li = document.createElement("li");
       li.className = "doc-item";
-      li.innerHTML = `
-        <span class="doc-name" title="${escapeHtml(d.filename)}">${escapeHtml(d.filename)}</span>
-        <span class="doc-meta">
-          <span class="badge ${d.status}">${statusLabel(d.status)}</span>
-          ${d.status === "ready" ? `<span>${d.n_chunks} 청크</span>` : ""}
-          ${d.error ? `<span title="${escapeHtml(errorLabel(d.error))}">⚠</span>` : ""}
-        </span>`;
+      const name = document.createElement("span");
+      name.className = "doc-name";
+      name.title = d.filename || "";
+      name.textContent = d.filename || "";
+      const meta = document.createElement("span");
+      meta.className = "doc-meta";
+      const badge = document.createElement("span");
+      badge.className = "badge " + d.status;
+      badge.textContent = statusLabel(d.status);
+      meta.appendChild(badge);
+      if (d.status === "ready") {
+        const chunks = document.createElement("span");
+        chunks.textContent = d.n_chunks + " 청크";
+        meta.appendChild(chunks);
+      }
+      if (d.error) {
+        const warn = document.createElement("span");
+        warn.title = errorLabel(d.error);
+        warn.textContent = "⚠";
+        meta.appendChild(warn);
+      }
+      if (d.status !== "processing") {
+        const del = document.createElement("button");
+        del.type = "button";
+        del.className = "doc-delete";
+        del.title = "문서 삭제";
+        del.textContent = "삭제";
+        del.addEventListener("click", (e) => {
+          e.stopPropagation();
+          deleteDoc(d.document_id, d.filename);
+        });
+        meta.appendChild(del);
+      }
+      li.appendChild(name);
+      li.appendChild(meta);
       docList.appendChild(li);
     });
   } catch (_) {}
+}
+
+async function deleteDoc(id, filename) {
+  if (!confirm(`「${filename || id}」문서를 삭제할까요?\n검색 인덱스에서도 제거됩니다.`))
+    return;
+  try {
+    const res = await fetch(`${API}/v1/documents/${id}`, {
+      method: "DELETE",
+      headers: headers(),
+    });
+    if (res.status === 409) {
+      toast("문서가 아직 처리 중입니다. 잠시 후 다시 시도하세요.");
+      return;
+    }
+    if (!res.ok) throw new Error("delete " + res.status);
+    toast(`삭제됨: ${filename || id}`);
+    refreshDocs();
+  } catch (err) {
+    toast("삭제 실패: " + err.message);
+  }
 }
 
 function statusLabel(s) {

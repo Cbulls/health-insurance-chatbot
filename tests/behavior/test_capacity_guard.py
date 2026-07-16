@@ -68,7 +68,10 @@ def test_CG04_warns_at_80_percent(caplog):
 def test_CG05_capacity_status_reports_usage():
     store = make_store(max_points=100)
     st = store.capacity_status()
-    assert st == {"points": 0, "max_points": 100, "used_pct": 0.0}
+    assert st["points"] == 0
+    assert st["max_points"] == 100
+    assert st["used_pct"] == 0.0
+    assert "hybrid" in st
 
 
 # ════════ 원격 컬렉션 저자원 구성 + Cloud 인증 ════════
@@ -101,6 +104,7 @@ def test_CG06_remote_collection_low_resource_config(monkeypatch):
     assert create["hnsw_config"].on_disk is True    # HNSW 그래프 디스크
     assert create["quantization_config"] is not None  # int8 양자화(RAM 절약)
     assert create["optimizers_config"].default_segment_number == 1
+    assert "sparse" in create["sparse_vectors_config"]  # 하이브리드
 
 
 def test_CG06b_existing_collection_dim_mismatch_fail_fast(monkeypatch):
@@ -116,7 +120,7 @@ def test_CG06b_existing_collection_dim_mismatch_fail_fast(monkeypatch):
         def get_collection(self, coll):
             dense = SimpleNamespace(size=3072)
             vectors = {"dense": dense}
-            params = SimpleNamespace(vectors=vectors)
+            params = SimpleNamespace(vectors=vectors, sparse_vectors=None)
             config = SimpleNamespace(params=params)
             return SimpleNamespace(config=config)
 
