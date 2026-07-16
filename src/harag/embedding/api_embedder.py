@@ -72,13 +72,17 @@ class ApiEmbeddingModel:
     """OpenAI 호환 임베딩 API 어댑터."""
 
     def __init__(self, api_base: str, api_key: str, model: str, dim: int,
-                 timeout: float = 30.0, batch_size: int = 64):
+                 timeout: float = 30.0, batch_size: int = 64,
+                 send_dimensions: bool = False):
         self._base = api_base.rstrip("/")
         self._key = api_key
         self.model_id = model
         self.dim = dim
         self._timeout = timeout
         self._batch_size = max(1, batch_size)
+        # OpenAI text-embedding-3-*는 dimensions로 차원 축소 지원(저장량 절감).
+        # 호환 프로바이더가 미지원일 수 있어 옵트인.
+        self._send_dimensions = send_dimensions
         # 커넥션 재사용(keep-alive) — 문서마다 새 TCP/TLS 핸드셰이크 방지.
         self._client = httpx.Client(
             base_url=self._base,
@@ -98,14 +102,16 @@ class ApiEmbeddingModel:
         return out
 
     def _encode_batch(self, batch: list[str]) -> list[list[float]]:
-        resp = self._client.post(
-            "/embeddings",
-            json={"model": self.model_id, "input": batch},
-        )
+        body = {"model": self.model_id, "input": batch}
+        if self._send_dimensions:
+            body["dimensions"] = self.dim
+        resp = self._client.post("/embeddings", json=body)
         resp.raise_for_status()
         data = resp.json()["data"]
-        # index 순서 보장
-        data.sort(key=lambda d: d["index"])
+        # index 순서 보장. 단 일부 호환 프로바이더(Gemini 등)는 index 필드를
+        # 생략한다 — 그 경우 응답이 입력 순서라고 보고 정렬을 건너뛴다.
+        if all(d.get("index") is not None for d in data):
+            data.sort(key=lambda d: d["index"])
         vecs = [d["embedding"] for d in data]
         for v in vecs:
             if len(v) != self.dim:
@@ -123,5 +129,6 @@ def build_embedding_model(settings: Settings):
             api_key=settings.embedding_api_key,
             model=settings.embedding_model,
             dim=settings.embedding_dim,
+            send_dimensions=settings.embedding_send_dimensions,
         )
     return LocalHashEmbeddingModel(dim=settings.embedding_dim)

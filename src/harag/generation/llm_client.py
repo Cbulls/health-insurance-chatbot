@@ -13,7 +13,7 @@ LLM은 외부 API. rate limit·비용·타임아웃이 관심사.
 from __future__ import annotations
 
 import time
-from typing import Protocol
+from typing import Iterator, Protocol
 
 
 class LLMError(Exception):
@@ -60,8 +60,9 @@ class ExternalLLMClient:
         self._base_backoff = base_backoff_sec
         self._system_instruction = system_instruction
 
-    def complete(self, query: str, context_texts: list[str],
-                 context_ids: list[str]) -> tuple[str, list[str]]:
+    def _build_payload(self, query: str, context_texts: list[str],
+                       context_ids: list[str]) -> dict:
+        """비용 상한 검사 + 인젝션 방어 프롬프트 조립(complete/stream 공통)."""
         # ── 비용 상한: 호출 전 차단(폭주 방어) ──
         est_tokens = _estimate_tokens(context_texts, query)
         est_cost = est_tokens / 1000 * self._cost_per_1k
@@ -75,11 +76,15 @@ class ExternalLLMClient:
             system_instruction=self._system_instruction,
             query=query, context_texts=context_texts)
 
-        payload = {
+        return {
             "model": self._model,
             "prompt": safe_prompt,
             "context_ids": context_ids,
         }
+
+    def complete(self, query: str, context_texts: list[str],
+                 context_ids: list[str]) -> tuple[str, list[str]]:
+        payload = self._build_payload(query, context_texts, context_ids)
 
         # ── rate limit 백오프 재시도 ──
         attempt = 0
@@ -89,6 +94,32 @@ class ExternalLLMClient:
                 return self._parse(resp)
             except RateLimitError:
                 if attempt >= self._max_retries:
+                    raise LLMError("rate limit: 재시도 소진")
+                time.sleep(self._base_backoff * (2 ** attempt))
+                attempt += 1
+            except LLMTimeout:
+                raise
+
+    def supports_streaming(self) -> bool:
+        return callable(getattr(self._transport, "post_stream", None))
+
+    def complete_stream(self, query: str, context_texts: list[str],
+                        context_ids: list[str]) -> Iterator[str]:
+        """토큰을 도착하는 대로 yield(TTFT 개선). 방어 로직은 complete와 동일.
+
+        재시도는 '첫 토큰 전'까지만 — 이미 내보낸 토큰은 되감을 수 없다."""
+        payload = self._build_payload(query, context_texts, context_ids)
+
+        attempt = 0
+        while True:
+            emitted = False
+            try:
+                for piece in self._transport.post_stream(payload):
+                    emitted = True
+                    yield piece
+                return
+            except RateLimitError:
+                if emitted or attempt >= self._max_retries:
                     raise LLMError("rate limit: 재시도 소진")
                 time.sleep(self._base_backoff * (2 ** attempt))
                 attempt += 1

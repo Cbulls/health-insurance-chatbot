@@ -22,11 +22,15 @@ class CrossEncoder(Protocol):
 
 class CrossEncoderReranker:
     def __init__(self, model: CrossEncoder, top_n: int = 5,
-                 min_score: float = 0.0, max_candidates_under_load: int = 20):
+                 min_score: float = 0.0, max_candidates_under_load: int = 20,
+                 retrieval_blend: float = 0.0):
         self._model = model
         self._top_n = top_n
         self._min_score = min_score
         self._max_under_load = max_candidates_under_load
+        # 0=cross-encoder 점수만, 1=retrieval 점수만. 어절 리랭커처럼 약한
+        # 신호는 0.5~0.7로 dense 점수를 보존해 한/영 교차 질의에서 붕괴를 막는다.
+        self._blend = max(0.0, min(1.0, retrieval_blend))
 
     def rerank(self, query: str, candidates: list[ScoredChunk],
                under_load: bool = False) -> list[ScoredChunk]:
@@ -43,9 +47,13 @@ class CrossEncoderReranker:
         # cross-encoder로 질의-청크 정밀 재채점(한 번의 배치 호출)
         scores = self._model.score_pairs(query, [s.chunk.text for s in pool])
 
-        # 새 점수로 ScoredChunk 갱신
-        rescored = [ScoredChunk(chunk=sc.chunk, score=new)
-                    for sc, new in zip(pool, scores)]
+        # 새 점수로 ScoredChunk 갱신(선택적 retrieval 점수 블렌드)
+        blend = self._blend
+        rescored = [
+            ScoredChunk(chunk=sc.chunk,
+                        score=(1.0 - blend) * new + blend * sc.score)
+            for sc, new in zip(pool, scores)
+        ]
 
         # RR-02: 최저 점수 미달 제외
         kept = [s for s in rescored if s.score >= self._min_score]

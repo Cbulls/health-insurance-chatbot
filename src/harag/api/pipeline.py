@@ -10,10 +10,14 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import AsyncIterator
 
 from harag.contracts.boundaries import AuthContext, ScoredChunk
 from harag.api.deps import AnswerResult, StreamEvent
+from harag.generation.llm_client import LLMError, CostLimitError
+
+logger = logging.getLogger("harag.api")
 
 
 class QueryPipelineImpl:
@@ -32,8 +36,9 @@ class QueryPipelineImpl:
         return await asyncio.to_thread(
             self._answer_sync, query, auth, conversation_id)
 
-    def _answer_sync(self, query: str, auth: AuthContext,
-                     conversation_id: str | None) -> AnswerResult:
+    def _retrieve_sync(self, query: str, auth: AuthContext,
+                       conversation_id: str | None) -> list[ScoredChunk]:
+        """재작성 → 검색 → 리랭크(읽기 경로 공통 전반부)."""
         search_query = query
         if self._rewriter is not None:
             search_query = self._rewriter.rewrite_for_search(query, conversation_id)
@@ -43,11 +48,33 @@ class QueryPipelineImpl:
 
         if self._reranker is not None and results:
             results = self._reranker.rerank(search_query, results)
+        return results
 
-        gen = self._generator.generate(query=query, context=results)
-
+    def _record_turn(self, query: str, conversation_id: str | None) -> None:
         if self._rewriter is not None and conversation_id is not None:
             self._rewriter.record_turn(conversation_id, query)
+
+    def _answer_sync(self, query: str, auth: AuthContext,
+                     conversation_id: str | None) -> AnswerResult:
+        results = self._retrieve_sync(query, auth, conversation_id)
+        return self._generate_sync(query, results, conversation_id)
+
+    def _generate_sync(self, query: str, results: list[ScoredChunk],
+                       conversation_id: str | None) -> AnswerResult:
+        # LLM 장애(rate limit 소진·비용 상한·타임아웃)는 500이 아니라
+        # abstain으로 강등한다(graceful degradation — 검색까지는 성공했으므로).
+        try:
+            gen = self._generator.generate(query=query, context=results)
+        except CostLimitError as e:
+            logger.warning("LLM cost limit: %s", e)
+            return AnswerResult(answer=None, abstained=True,
+                                abstain_reason="llm_cost_limit")
+        except LLMError as e:
+            logger.warning("LLM unavailable: %s", e)
+            return AnswerResult(answer=None, abstained=True,
+                                abstain_reason="llm_unavailable")
+
+        self._record_turn(query, conversation_id)
 
         cited = set(gen.cited_chunk_ids)
         context_chunks = [r for r in results if r.chunk.meta.chunk_id in cited] \
@@ -62,16 +89,65 @@ class QueryPipelineImpl:
     async def answer_stream(self, query: str, auth: AuthContext,
                             conversation_id: str | None) -> AsyncIterator[StreamEvent]:
         # abstention은 스트리밍 전에 결정(지어낸 토큰 노출 방지)
-        result = await self.answer(query, auth, conversation_id)
-        if result.abstained or result.answer is None:
-            yield StreamEvent(kind="abstain", data=result.abstain_reason or "no_answer")
+        results = await asyncio.to_thread(
+            self._retrieve_sync, query, auth, conversation_id)
+        pre = self._generator.precheck(results)
+        if pre is not None:
+            yield StreamEvent(kind="abstain", data=pre.abstain_reason or "no_answer")
             return
-        # MVP: 전체 답을 어절 단위로 흘려 스트리밍 체감 제공(실 스트리밍 LLM은 Phase 2)
-        for piece in _chunks_of(result.answer):
-            yield StreamEvent(kind="token", data=piece)
-        labels = _unique_labels(result.context_chunks)
+
+        token_iter = self._generator.stream_tokens(query, results)
+        if token_iter is None:
+            # LLM이 스트리밍 미지원(local 폴백 등) — 완성 후 조각 전송(체감 스트리밍).
+            # 검색 결과는 위에서 이미 얻었으므로 생성만 오프로드한다.
+            result = await asyncio.to_thread(
+                self._generate_sync, query, results, conversation_id)
+            if result.abstained or result.answer is None:
+                yield StreamEvent(kind="abstain",
+                                  data=result.abstain_reason or "no_answer")
+                return
+            for piece in _chunks_of(result.answer):
+                yield StreamEvent(kind="token", data=piece)
+            labels = _unique_labels(result.context_chunks)
+            yield StreamEvent(kind="citations", data="; ".join(labels))
+            yield StreamEvent(kind="done", data="")
+            return
+
+        # 실 스트리밍: LLM 토큰을 도착하는 대로 전달(TTFT = 검색+첫 토큰).
+        # 토큰 대기는 블로킹 I/O라 next()를 워커 스레드로 오프로드한다.
+        emitted = False
+        it = iter(token_iter)
+        try:
+            while True:
+                piece = await asyncio.to_thread(next, it, _STREAM_DONE)
+                if piece is _STREAM_DONE:
+                    break
+                emitted = True
+                yield StreamEvent(kind="token", data=piece)
+        except CostLimitError as e:
+            logger.warning("LLM cost limit (stream): %s", e)
+            yield StreamEvent(kind="abstain", data="llm_cost_limit")
+            return
+        except LLMError as e:
+            logger.warning("LLM stream failed (emitted=%s): %s", emitted, e)
+            if emitted:
+                # 이미 일부 토큰이 나갔으면 abstain으로 되돌릴 수 없다 → error
+                yield StreamEvent(kind="error", data="llm_stream_interrupted")
+            else:
+                yield StreamEvent(kind="abstain", data="llm_unavailable")
+            return
+
+        if not emitted:
+            yield StreamEvent(kind="abstain", data="empty_answer")
+            return
+
+        self._record_turn(query, conversation_id)
+        labels = _unique_labels(results)
         yield StreamEvent(kind="citations", data="; ".join(labels))
         yield StreamEvent(kind="done", data="")
+
+
+_STREAM_DONE = object()  # 스트림 종료 센티널(next 기본값)
 
 
 def _chunks_of(text: str, size: int = 24) -> list[str]:

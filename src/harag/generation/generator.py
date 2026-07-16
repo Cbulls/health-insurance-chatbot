@@ -10,7 +10,7 @@ LLM은 주입 가능한 인터페이스(LLMClient)로 둔다.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Iterator, Protocol
 
 
 @dataclass
@@ -38,14 +38,36 @@ class AnswerGenerator:
         self._llm = llm or _StubLLM()
         self._min_score = min_score
 
-    def generate(self, query, context) -> GenerationResult:
-        # ── 생성 전 가드: abstention ──
+    def precheck(self, context) -> GenerationResult | None:
+        """생성 전 가드(abstention). 통과하면 None, 아니면 abstain 결과."""
         if not context:
             return GenerationResult(answer=None, abstained=True,
                                     abstain_reason="empty_context")
         if max(sc.score for sc in context) < self._min_score:
             return GenerationResult(answer=None, abstained=True,
                                     abstain_reason="low_score")
+        return None
+
+    def stream_tokens(self, query, context) -> Iterator[str] | None:
+        """스트리밍 생성 진입점 — LLM이 스트리밍을 지원할 때만 iterator 반환.
+
+        전제: precheck 통과. 미지원(local LLM 등)이면 None → 호출자가
+        논스트리밍 generate()로 폴백한다."""
+        llm = self._llm
+        if not callable(getattr(llm, "complete_stream", None)):
+            return None
+        supports = getattr(llm, "supports_streaming", None)
+        if callable(supports) and not supports():
+            return None
+        ctx_ids = [sc.chunk.meta.chunk_id for sc in context]
+        ctx_texts = [sc.chunk.text for sc in context]
+        return llm.complete_stream(query, ctx_texts, ctx_ids)
+
+    def generate(self, query, context) -> GenerationResult:
+        # ── 생성 전 가드: abstention ──
+        pre = self.precheck(context)
+        if pre is not None:
+            return pre
 
         # ── LLM 호출 ──
         ctx_ids = [sc.chunk.meta.chunk_id for sc in context]

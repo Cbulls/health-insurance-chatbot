@@ -21,7 +21,7 @@ class AnswerResult:
 
 @dataclass
 class StreamEvent:
-    kind: str          # "token" | "abstain" | "done" | "citations"
+    kind: str          # "token" | "abstain" | "done" | "citations" | "error"
     data: str
 
     def to_sse(self) -> str:
@@ -49,6 +49,7 @@ class IngestQueue(Protocol):
 _query_pipeline: Optional[QueryPipeline] = None
 _ingest = None  # InProcessIngest(MVP 인프로세스 수집 — hot path 유지)
 _ingest_queue: Optional[IngestQueue] = None  # 워커 배선용 큐(라이브러리 경로)
+_vector_store = None  # QdrantVectorStore(관측용 — /health 용량 노출)
 
 
 def set_query_pipeline(p: QueryPipeline) -> None:
@@ -71,6 +72,16 @@ def get_ingest():
     if _ingest is None:
         raise RuntimeError("Ingest 서비스 미주입")
     return _ingest
+
+
+def set_vector_store(store) -> None:
+    global _vector_store
+    _vector_store = store
+
+
+def get_vector_store_or_none():
+    """관측용 — 미주입이어도 에러 대신 None(헬스체크는 항상 동작해야 함)."""
+    return _vector_store
 
 
 def set_ingest_queue(q: IngestQueue) -> None:

@@ -33,23 +33,29 @@ docker compose up --build
 # 브라우저에서 http://localhost:8000 접속 → PDF 업로드 → 질문
 ```
 
-운영 품질(실제 임베딩/LLM)을 쓰려면 `.env`에 키를 채운다:
+운영 품질(실제 임베딩/LLM)을 쓰려면 `.env`에 키를 채운다. Gemini(Google AI Studio) 예:
 
 ```dotenv
-EMBEDDING_PROVIDER=openai
-EMBEDDING_API_KEY=sk-...
-EMBEDDING_MODEL=text-embedding-3-small
-EMBEDDING_DIM=1536
-LLM_PROVIDER=openai
-LLM_API_KEY=sk-...
-LLM_MODEL=gpt-4o-mini
+LLM_API_BASE=https://generativelanguage.googleapis.com/v1beta/openai
+LLM_API_KEY=...                  # AI Studio 키
+LLM_MODEL=gemini-3.5-flash
+LLM_REWRITE_MODEL=gemini-3.1-flash-lite
+EMBEDDING_API_BASE=https://generativelanguage.googleapis.com/v1beta/openai
+EMBEDDING_API_KEY=...            # 같은 Gemini 키
+EMBEDDING_MODEL=gemini-embedding-001
+EMBEDDING_DIM=768
+EMBEDDING_SEND_DIMENSIONS=true
+QDRANT_URL=https://....cloud.qdrant.io
+QDRANT_API_KEY=...
+RATE_LIMIT_QPM=8                 # Gemini 무료 ~10 RPM 아래로
 ```
 
-> 국내 행정문서 데이터 주권이 중요하면 OpenAI 호환 게이트웨이(예: Upstage Solar)를
-> `*_API_BASE`/`*_MODEL`만 바꿔 끼운다. 코드는 프로바이더 무관이다.
->
+OpenAI 호환이면 `*_API_BASE` / `*_MODEL`만 바꿔 끼운다(예: Upstage Solar).
+코드는 프로바이더 무관하다.
+
 > 임베딩 모델(차원)을 바꾸면 기존 Qdrant 컬렉션과 차원이 어긋난다.
-> `docker compose down -v`로 볼륨을 지우고 다시 올린다.
+> 컬렉션을 삭제하거나 `QDRANT_COLLECTION`을 새 이름으로 바꾼 뒤 재인덱싱한다.
+> 자세한 남은 일·사용자 구축 항목은 [REMAINING_WORK.md](REMAINING_WORK.md).
 
 ## 빠른 시작 (로컬, Docker 없이)
 
@@ -86,7 +92,26 @@ BASE=http://localhost:8000 python scripts/smoke.py
 | GET | `/health` | 헬스체크 |
 
 소유자 격리는 `X-Owner-Id` 헤더로 한다(프론트가 브라우저별 UUID 발급). 없으면
-`anonymous` 공유 소유자로 폴백. Phase 2에서 조직 IdP(JWT/OIDC)로 대체한다.
+`anonymous` 공유 소유자로 폴백. `AUTH_JWT_SECRET`을 설정하면 Bearer JWT 검증으로
+전환된다(조직 IdP는 Phase 2 / 사용자 구축).
+
+## Phase 2 · 남은 일
+
+실행 가능한 MVP 이후의 **사용자 구축**과 **코드 미비**는
+[REMAINING_WORK.md](REMAINING_WORK.md)에 우선순위별로 정리했다.
+엔터프라이즈 상세는
+[앞으로 해야 할 것들/PRODUCTION_ROADMAP.md](앞으로%20해야%20할%20것들/PRODUCTION_ROADMAP.md).
+
+코드 다음 타석(요약): 문서 삭제 API → 하이브리드(dense+sparse) 검색 → 문서 상태 DB →
+HWP PoC → 큐/워커.
+
+## 한계 (정직한 경계)
+
+- MVP 검색은 dense 단독이라 한국어 recall이 하이브리드보다 낮다.
+- 인메모리 문서 상태(수집 레코드)는 단일 프로세스 가정 — 재시작 시 목록 유실 가능.
+- **문서 삭제 API 없음** — 용량 한도 시 Qdrant 콘솔에서 삭제.
+- 스캔(이미지) PDF는 텍스트 추출 불가 → `failed` (OCR 미구현).
+- 로컬 폴백 임베딩/LLM은 데모용. 운영은 API 키 필요.
 
 ## 구조
 
@@ -135,21 +160,3 @@ pytest -q            # tests/behavior/* + tests/contract/*
 `tests/behavior/`는 리랭커(RR-01~04)·멀티턴(RW-01~06)·워커·증분·qdrant_store(빈 창 없는 버전전환
 QS-01~05)·storage·pii·auth_jwt·observability·parser를, `tests/contract/`는 acl·capacity·poc·eval·
 versioning 불변식을 검증한다.
-
-## Phase 2 로드맵
-
-[앞으로 해야 할 것들/PRODUCTION_ROADMAP.md](앞으로%20해야%20할%20것들/PRODUCTION_ROADMAP.md) 계승:
-
-1. 하이브리드(dense+sparse)+RRF, 형태소 분석기(Kiwi), **결정적 sparse 해시**
-2. HWP/HWPX 파서 PoC(표 복원율 Go/No-Go — 최상위 SPOF)
-3. 조직 ACL(JWT/OIDC IdP), 버전 태깅·원자적 전환·GC
-4. PostgreSQL(등록부·감사) · S3(원본/IR 보존) · 메시지 큐(읽기/쓰기 물리 격리)
-5. self-host GPU 임베딩·리랭커(KURE/BGE-M3)
-6. 골드셋 + CI 품질 게이트(recall/faithfulness/abstention), 부하테스트·SLO 동결
-
-## 한계 (정직한 경계)
-
-- MVP 검색은 dense 단독이라 한국어 recall이 하이브리드보다 낮다(Phase 2에서 개선).
-- 인메모리 문서 상태(수집 레코드)는 단일 프로세스 가정 — 다중 인스턴스는 Phase 2.
-- 스캔(이미지) PDF는 텍스트 추출 불가 → `failed` 처리(OCR은 Phase 2).
-- 로컬 폴백 임베딩/LLM은 데모용 품질이다. 운영은 API 키를 넣어야 한다.

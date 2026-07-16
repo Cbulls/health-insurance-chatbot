@@ -18,9 +18,18 @@ services:
     ports:
       - "8000:8000"
     environment:
-      # Qdrant 연결(컴포즈 네트워크 내부 호스트명)
-      QDRANT_URL: http://qdrant:6333
-      QDRANT_COLLECTION: harag_pdf_mvp
+      # Qdrant 연결(컴포즈 네트워크 내부 호스트명). Qdrant Cloud를 쓰려면
+      # .env에서 QDRANT_URL/QDRANT_API_KEY를 클라우드 값으로 덮어쓴다.
+      QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
+      QDRANT_API_KEY: ${QDRANT_API_KEY:-}
+      QDRANT_COLLECTION: ${QDRANT_COLLECTION:-harag_pdf_mvp}
+      QDRANT_DISK_BUDGET_MB: ${QDRANT_DISK_BUDGET_MB:-3072}
+      QDRANT_PAYLOAD_BYTES_PER_POINT: ${QDRANT_PAYLOAD_BYTES_PER_POINT:-2048}
+      EMBEDDING_SEND_DIMENSIONS: ${EMBEDDING_SEND_DIMENSIONS:-}
+      LLM_REWRITE_ENABLED: ${LLM_REWRITE_ENABLED:-true}
+      LLM_REWRITE_MODEL: ${LLM_REWRITE_MODEL:-}
+      RATE_LIMIT_QPM: ${RATE_LIMIT_QPM:-20}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
       # 임베딩/LLM: .env에서 주입. 비우면 로컬 폴백(키 없이 데모 가능).
       EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-}
       EMBEDDING_API_BASE: ${EMBEDDING_API_BASE:-https://api.openai.com/v1}

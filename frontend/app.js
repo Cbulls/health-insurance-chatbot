@@ -17,6 +17,14 @@ function headers(extra) {
   return Object.assign({ "X-Owner-Id": OWNER }, extra || {});
 }
 
+// ── 대화 ID: 멀티턴 질의 재작성용("그건 언제까지?" 같은 후속 질의 해소) ──
+function newConversationId() {
+  return crypto.randomUUID
+    ? crypto.randomUUID()
+    : "c-" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+let conversationId = newConversationId();
+
 // ── DOM ──
 const dropzone = document.getElementById("dropzone");
 const fileInput = document.getElementById("fileInput");
@@ -26,7 +34,16 @@ const emptyState = document.getElementById("emptyState");
 const composer = document.getElementById("composer");
 const queryInput = document.getElementById("queryInput");
 const sendBtn = document.getElementById("sendBtn");
+const newChatBtn = document.getElementById("newChatBtn");
 document.getElementById("ownerId").textContent = OWNER;
+
+// 새 대화: 이전 턴 맥락(질의 재작성 이력)을 리셋하고 화면을 비운다.
+newChatBtn.addEventListener("click", () => {
+  conversationId = newConversationId();
+  messages.querySelectorAll(".msg, .citations").forEach((el) => el.remove());
+  if (emptyState) emptyState.style.display = "";
+  toast("새 대화를 시작합니다.");
+});
 
 // ── 토스트 ──
 function toast(msg) {
@@ -99,7 +116,7 @@ async function pollDoc(id, tries = 0) {
     } else if (d.status === "ready") {
       toast(`준비 완료: ${d.filename} (${d.n_chunks}개 청크)`);
     } else if (d.status === "failed") {
-      toast(`처리 실패: ${d.filename} — ${d.error || ""}`);
+      toast(`처리 실패: ${d.filename} — ${errorLabel(d.error)}`);
     }
   } catch (_) {}
 }
@@ -118,7 +135,7 @@ async function refreshDocs() {
         <span class="doc-meta">
           <span class="badge ${d.status}">${statusLabel(d.status)}</span>
           ${d.status === "ready" ? `<span>${d.n_chunks} 청크</span>` : ""}
-          ${d.error ? `<span title="${escapeHtml(d.error)}">⚠</span>` : ""}
+          ${d.error ? `<span title="${escapeHtml(errorLabel(d.error))}">⚠</span>` : ""}
         </span>`;
       docList.appendChild(li);
     });
@@ -127,6 +144,12 @@ async function refreshDocs() {
 
 function statusLabel(s) {
   return { processing: "처리중", ready: "준비됨", failed: "실패" }[s] || s;
+}
+
+function errorLabel(err) {
+  if ((err || "").startsWith("capacity_exceeded"))
+    return "저장 공간 한도에 도달했습니다. 기존 문서를 삭제한 뒤 다시 시도해 주세요.";
+  return err || "";
 }
 
 // ── 채팅 ──
@@ -176,8 +199,14 @@ async function streamAnswer(query) {
     const res = await fetch(`${API}/v1/query/stream`, {
       method: "POST",
       headers: headers({ "Content-Type": "application/json" }),
-      body: JSON.stringify({ query }),
+      body: JSON.stringify({ query, conversation_id: conversationId }),
     });
+    if (res.status === 429) {
+      bubble.classList.remove("thinking");
+      bubble.classList.add("abstain");
+      bubble.textContent = "요청이 너무 잦습니다. 잠시 후 다시 시도해 주세요.";
+      return;
+    }
     if (!res.ok || !res.body) throw new Error("query " + res.status);
 
     const reader = res.body.getReader();
@@ -211,6 +240,11 @@ async function streamAnswer(query) {
         bubble.classList.remove("thinking");
         bubble.classList.add("abstain");
         bubble.textContent = abstainMessage(evt.data);
+      } else if (evt.kind === "error") {
+        bubble.classList.remove("thinking");
+        bubble.classList.add("abstain");
+        bubble.textContent =
+          "서버 오류로 답변을 완료하지 못했습니다. 잠시 후 다시 시도해 주세요.";
       } else if (evt.kind === "citations") {
         renderCitations(wrap, evt.data);
       }
@@ -230,6 +264,10 @@ function abstainMessage(reason) {
     return "업로드한 문서에서 근거를 찾지 못했습니다. (지어내지 않고 답변을 보류합니다)";
   if ((reason || "").startsWith("fabricated_citation"))
     return "답변 검증에 실패하여 응답을 보류합니다.";
+  if (reason === "llm_unavailable")
+    return "답변 생성 서비스가 일시적으로 불안정합니다. 잠시 후 다시 시도해 주세요.";
+  if (reason === "llm_cost_limit")
+    return "질의 컨텍스트가 비용 상한을 초과해 답변을 보류합니다. 질문을 더 구체적으로 줄여 보세요.";
   return "답변을 제공할 수 없습니다: " + (reason || "unknown");
 }
 
