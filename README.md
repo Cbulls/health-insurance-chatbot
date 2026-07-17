@@ -47,9 +47,10 @@ EMBEDDING_DIM=768
 EMBEDDING_SEND_DIMENSIONS=true
 QDRANT_URL=https://....cloud.qdrant.io
 QDRANT_API_KEY=...
-RATE_LIMIT_QPM=8                 # Gemini 무료 ~10 RPM 아래로
+RATE_LIMIT_QPM=5                 # 질문당 ≤3콜 → Gemini ~10 RPM 아래로
 ```
 
+과금·한도 운영은 [docs/GEMINI_COST_STRATEGY.md](docs/GEMINI_COST_STRATEGY.md).
 OpenAI 호환이면 `*_API_BASE` / `*_MODEL`만 바꿔 끼운다(예: Upstage Solar).
 코드는 프로바이더 무관하다.
 

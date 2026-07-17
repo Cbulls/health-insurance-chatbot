@@ -24,3 +24,5 @@ data/
 # 테스트/샘플 산출물
 *.tmp
 sample_*.pdf
+node_modules/
+tmp/

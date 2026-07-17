@@ -71,7 +71,16 @@ class PdfIngestPipeline:
                 logger.warning("boundary2 violation on %s: %s", document_id, e)
 
             embedded = self._embedder.embed(chunks)
-            n = self._store.index(embedded)
+            # replace_document: 재청킹 시 고아 포인트 GC. skip_capacity: 위에서 검사함.
+            index_fn = self._store.index
+            try:
+                n = index_fn(
+                    embedded,
+                    skip_capacity_check=True,
+                    replace_document=True,
+                )
+            except TypeError:
+                n = index_fn(embedded)
             self._metadata.mark_ready(document_id, owner, n)
             self._cache_set(document_id, owner, filename, "ready", n, None)
             if self._on_success is not None:

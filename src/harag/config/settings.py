@@ -92,6 +92,13 @@ class Settings:
     # 끄거나(false), 답변보다 싸고 빠른 모델로 분리할 수 있다.
     llm_rewrite_enabled: bool
     llm_rewrite_model: str         # 비면 llm_model 사용
+    # Gemini/유료 폭주 방어 — 답변 LLM 예상 비용 상한(휴리스틱 토큰×단가).
+    llm_max_cost_per_query_usd: float
+    llm_cost_per_1k_tokens: float
+    # 429 재시도 횟수. 무료 티어는 1 이하 권장(쿼터 소진 시 증폭 방지).
+    llm_max_retries: int
+    # 재작성 프롬프트 문자 상한(이력+질의). 초과 시 이력을 자른다.
+    llm_rewrite_max_chars: int
 
     # ── Qdrant ──
     qdrant_url: str                # 비면 인메모리(:memory:)
@@ -100,8 +107,18 @@ class Settings:
     # 디스크 예산(MB). 이 예산을 넘길 인덱싱은 거부(무료 사양 초과 방지).
     # 0이면 가드 비활성. 기본 3072 = 무료 4GiB의 75%(공식 80% 경고선 아래).
     qdrant_disk_budget_mb: int
-    # 청크(포인트)당 payload 예상 크기(바이트) — 원문 텍스트+메타.
+    # 청크(포인트)당 payload 예상 크기(바이트) — 슬림 v2 기준.
     qdrant_payload_bytes_per_point: int
+    # sparse 벡터 예상 바이트(하이브리드 용량 공식). dense-only면 무시.
+    qdrant_sparse_bytes_per_point: int
+    # 세그먼트·인덱스 오버헤드 배수(용량 공식).
+    qdrant_segment_factor: float
+    # upsert 배치 크기(대문서 HTTP 바디·타임아웃 완화).
+    qdrant_upsert_batch_size: int
+    # 하이브리드 prefetch = top_k * mult (기본 2).
+    hybrid_prefetch_mult: int
+    # approximate count 캐시 TTL(초). 0이면 캐시 없음.
+    qdrant_count_cache_ttl_s: float
 
     # ── 검색/생성 파라미터 ──
     top_k: int
@@ -110,6 +127,18 @@ class Settings:
     # 끄면(false) 어휘 겹침 리랭커 폴백. LLM 키 없으면 자동 폴백.
     rerank_llm_enabled: bool
     rerank_llm_model: str          # 비면 llm_rewrite_model → llm_model 순
+
+    # ── 리랭커 ──
+    # enabled + URL → HttpCrossEncoder(TEI). URL 없으면 Lexical 폴백(데모).
+    rerank_enabled: bool
+    reranker_server_url: str
+    rerank_top_n: int
+    rerank_timeout_ms: int
+    rerank_min_score: float          # 리랭커 자체 필터(RR-02). CE면 의미 있게 >0
+    # 0=CE만, 1=retrieval만. Lexical 폴백 기본 0.7, HTTP CE면 기본 0.
+    retrieval_blend: float
+    rerank_under_load_inflight: int  # 동시 질의 ≥ 이 값이면 under_load(RR-04)
+    context_dedupe: bool             # 생성 전 중복 청크 제거
 
     # ── 업로드 ──
     max_upload_bytes: int
@@ -177,18 +206,39 @@ def get_settings() -> Settings:
         llm_model=_get("LLM_MODEL", "gpt-4o-mini"),
         llm_rewrite_enabled=_get_bool("LLM_REWRITE_ENABLED", True),
         llm_rewrite_model=_get("LLM_REWRITE_MODEL", ""),
+        # 무료 티어 기본: 낮은 상한·적은 재시도. 유료 전환 시 env로 완화.
+        llm_max_cost_per_query_usd=_get_float("LLM_MAX_COST_PER_QUERY_USD", 0.05),
+        llm_cost_per_1k_tokens=_get_float("LLM_COST_PER_1K_TOKENS", 0.01),
+        llm_max_retries=_get_int("LLM_MAX_RETRIES", 1),
+        llm_rewrite_max_chars=_get_int("LLM_REWRITE_MAX_CHARS", 2000),
         qdrant_url=_get("QDRANT_URL", ""),
         qdrant_api_key=_get("QDRANT_API_KEY", ""),
         qdrant_collection=_get("QDRANT_COLLECTION", "harag_pdf_mvp"),
         qdrant_disk_budget_mb=_get_int("QDRANT_DISK_BUDGET_MB", 3072),
         qdrant_payload_bytes_per_point=_get_int(
-            "QDRANT_PAYLOAD_BYTES_PER_POINT", 2048),
+            "QDRANT_PAYLOAD_BYTES_PER_POINT", 1536),
+        qdrant_sparse_bytes_per_point=_get_int(
+            "QDRANT_SPARSE_BYTES_PER_POINT", 640),
+        qdrant_segment_factor=_get_float("QDRANT_SEGMENT_FACTOR", 1.15),
+        qdrant_upsert_batch_size=_get_int("QDRANT_UPSERT_BATCH_SIZE", 64),
+        hybrid_prefetch_mult=_get_int("HYBRID_PREFETCH_MULT", 2),
+        qdrant_count_cache_ttl_s=_get_float("QDRANT_COUNT_CACHE_TTL_S", 5.0),
         top_k=_get_int("TOP_K", 20),
         min_score=_get_float("MIN_SCORE", 0.15),
         rerank_llm_enabled=_get_bool("RERANK_LLM_ENABLED", True),
         rerank_llm_model=_get("RERANK_LLM_MODEL", ""),
+        rerank_enabled=_get_bool("RERANK_ENABLED", True),
+        reranker_server_url=_get("RERANKER_SERVER_URL", ""),
+        rerank_top_n=_get_int("RERANK_TOP_N", 5),
+        rerank_timeout_ms=_get_int("RERANK_TIMEOUT_MS", 3000),
+        rerank_min_score=_get_float("RERANK_MIN_SCORE", -1.0),  # -1=어댑터별 기본
+        # blend: 미지정 시 URL 유무로 결정(아래 후처리)
+        retrieval_blend=_get_float("RETRIEVAL_BLEND", -1.0),
+        rerank_under_load_inflight=_get_int("RERANK_UNDER_LOAD_INFLIGHT", 4),
+        context_dedupe=_get_bool("CONTEXT_DEDUPE", True),
         max_upload_bytes=_get_int("MAX_UPLOAD_BYTES", 100 * 1024 * 1024),
-        rate_limit_qpm=_get_int("RATE_LIMIT_QPM", 20),
+        # Gemini 무료 ~10 RPM, 질문당 최대 3콜 → 기본 5 이하.
+        rate_limit_qpm=_get_int("RATE_LIMIT_QPM", 5),
         allowed_origins=_split_csv(_get("ALLOWED_ORIGINS", "")),
         auth_jwt_secret=_get("AUTH_JWT_SECRET", ""),
         auth_jwt_algorithms=_split_csv(_get("AUTH_JWT_ALGORITHMS", "HS256")),
@@ -202,3 +252,19 @@ def get_settings() -> Settings:
         ingest_visibility_sec=_get_int("INGEST_VISIBILITY_SEC", 120),
         ingest_max_attempts=_get_int("INGEST_MAX_ATTEMPTS", 3),
     )
+
+
+def resolve_rerank_defaults(settings: Settings) -> tuple[float, float]:
+    """(retrieval_blend, rerank_min_score) — env -1 센티널을 어댑터별 기본으로.
+
+    HTTP CE: blend=0, min_score=settings.min_score(생성 게이트와 한 축).
+    Lexical: blend=0.7(한↔영 붕괴 방어), min_score=0.0(겹침 0이 흔해 필터 off).
+    """
+    use_http = bool(settings.rerank_enabled and settings.reranker_server_url)
+    blend = settings.retrieval_blend
+    if blend < 0:
+        blend = 0.0 if use_http else 0.7
+    rmin = settings.rerank_min_score
+    if rmin < 0:
+        rmin = settings.min_score if use_http else 0.0
+    return blend, rmin

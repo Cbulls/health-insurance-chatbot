@@ -11,23 +11,59 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 from typing import AsyncIterator
 
 from harag.contracts.boundaries import AuthContext, ScoredChunk
 from harag.api.deps import AnswerResult, StreamEvent
+from harag.api.middleware import current_trace_id
 from harag.generation.llm_client import LLMError, CostLimitError
+from harag.observability.tracing import QueryTrace
+from harag.retrieval.context_compact import dedupe_scored_chunks
 
 logger = logging.getLogger("harag.api")
 
 
+class _InflightGauge:
+    """동시 질의 수 — RR-04 under_load 신호."""
+
+    def __init__(self) -> None:
+        self._n = 0
+        self._lock = threading.Lock()
+
+    def __enter__(self) -> int:
+        with self._lock:
+            self._n += 1
+            return self._n
+
+    def __exit__(self, *exc) -> None:
+        with self._lock:
+            self._n = max(0, self._n - 1)
+
+    @property
+    def value(self) -> int:
+        with self._lock:
+            return self._n
+
+    def _reset_for_tests(self) -> None:
+        with self._lock:
+            self._n = 0
+
+
+_INFLIGHT = _InflightGauge()
+
+
 class QueryPipelineImpl:
     def __init__(self, retriever, generator, reranker=None, rewriter=None,
-                 top_k: int = 20):
+                 top_k: int = 20, under_load_inflight: int = 4,
+                 context_dedupe: bool = True):
         self._retriever = retriever
         self._generator = generator
-        self._reranker = reranker      # None이면 리랭킹 생략(Phase 2)
-        self._rewriter = rewriter      # None이면 멀티턴 재작성 생략(Phase 2)
+        self._reranker = reranker
+        self._rewriter = rewriter
         self._top_k = top_k
+        self._under_load_inflight = max(1, under_load_inflight)
+        self._context_dedupe = context_dedupe
 
     async def answer(self, query: str, auth: AuthContext,
                      conversation_id: str | None) -> AnswerResult:
@@ -38,16 +74,43 @@ class QueryPipelineImpl:
 
     def _retrieve_sync(self, query: str, auth: AuthContext,
                        conversation_id: str | None) -> list[ScoredChunk]:
-        """재작성 → 검색 → 리랭크(읽기 경로 공통 전반부)."""
+        """재작성 → 검색 → 리랭크 → (선택) 중복 제거."""
+        tid = current_trace_id() or "local"
+        tr = QueryTrace(tid, query)
+
         search_query = query
-        if self._rewriter is not None:
-            search_query = self._rewriter.rewrite_for_search(query, conversation_id)
+        with tr.stage("rewrite"):
+            if self._rewriter is not None:
+                search_query = self._rewriter.rewrite_for_search(
+                    query, conversation_id)
 
-        results: list[ScoredChunk] = self._retriever.retrieve(
-            search_query, auth=auth, k=self._top_k)
+        with tr.stage("retrieval"):
+            results: list[ScoredChunk] = self._retriever.retrieve(
+                search_query, auth=auth, k=self._top_k)
 
-        if self._reranker is not None and results:
-            results = self._reranker.rerank(search_query, results)
+        under_load = _INFLIGHT.value >= self._under_load_inflight
+        with tr.stage("rerank"):
+            if self._reranker is not None and results:
+                results = self._reranker.rerank(
+                    search_query, results, under_load=under_load)
+
+        if self._context_dedupe and results:
+            before = len(results)
+            results = dedupe_scored_chunks(results)
+            if len(results) < before:
+                logger.info(
+                    "context dedupe: %d → %d (trace=%s)",
+                    before, len(results), tid)
+
+        tr.record_retrieval(
+            [(s.chunk.meta.chunk_id, s.score) for s in results])
+        snap = tr.snapshot()
+        logger.info(
+            "query stages trace_id=%s under_load=%s stages=%s top_scores=%s",
+            tid, under_load,
+            {k: round(v, 4) for k, v in snap["stages"].items()},
+            [(cid, round(sc, 4)) for cid, sc in snap["retrieved"][:5]],
+        )
         return results
 
     def _record_turn(self, query: str, conversation_id: str | None) -> None:
@@ -56,8 +119,9 @@ class QueryPipelineImpl:
 
     def _answer_sync(self, query: str, auth: AuthContext,
                      conversation_id: str | None) -> AnswerResult:
-        results = self._retrieve_sync(query, auth, conversation_id)
-        return self._generate_sync(query, results, conversation_id)
+        with _INFLIGHT:
+            results = self._retrieve_sync(query, auth, conversation_id)
+            return self._generate_sync(query, results, conversation_id)
 
     def _generate_sync(self, query: str, results: list[ScoredChunk],
                        conversation_id: str | None) -> AnswerResult:
@@ -89,8 +153,11 @@ class QueryPipelineImpl:
     async def answer_stream(self, query: str, auth: AuthContext,
                             conversation_id: str | None) -> AsyncIterator[StreamEvent]:
         # abstention은 스트리밍 전에 결정(지어낸 토큰 노출 방지)
-        results = await asyncio.to_thread(
-            self._retrieve_sync, query, auth, conversation_id)
+        def _retrieve_counted():
+            with _INFLIGHT:
+                return self._retrieve_sync(query, auth, conversation_id)
+
+        results = await asyncio.to_thread(_retrieve_counted)
         pre = self._generator.precheck(results)
         if pre is not None:
             yield StreamEvent(kind="abstain", data=pre.abstain_reason or "no_answer")
@@ -99,7 +166,6 @@ class QueryPipelineImpl:
         token_iter = self._generator.stream_tokens(query, results)
         if token_iter is None:
             # LLM이 스트리밍 미지원(local 폴백 등) — 완성 후 조각 전송(체감 스트리밍).
-            # 검색 결과는 위에서 이미 얻었으므로 생성만 오프로드한다.
             result = await asyncio.to_thread(
                 self._generate_sync, query, results, conversation_id)
             if result.abstained or result.answer is None:
@@ -134,7 +200,6 @@ class QueryPipelineImpl:
         except LLMError as e:
             logger.warning("LLM stream failed (emitted=%s): %s", emitted, e)
             if emitted:
-                # 이미 일부 토큰이 나갔으면 abstain으로 되돌릴 수 없다 → error
                 yield StreamEvent(kind="error", data="llm_stream_interrupted")
             else:
                 yield StreamEvent(kind="abstain", data="llm_unavailable")

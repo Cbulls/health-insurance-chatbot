@@ -78,7 +78,7 @@
 | 3 | S3 원본 보존 | `object_store` 인터페이스만 |
 | 4 | 버전 태깅·원자 전환·GC | `indexing/versioning` 라이브러리, 라이브 미사용 |
 | 5 | 조직 ACL (부서/역할) | JWT 검증 배선됨, IdP 클레임·문서 태깅 정책 미완 |
-| 6 | GPU CrossEncoder 리랭커 | Lexical + retrieval_blend 폴백 |
+| 6 | GPU CrossEncoder 리랭커 | `HttpCrossEncoder`+`RERANKER_SERVER_URL` 배선됨. URL 없으면 Lexical 폴백. **서버·모델 기동은 사용자 구축** |
 | 7 | OCR (스캔 PDF) | 없음 |
 | 8 | 골드셋 CI 품질 게이트 | `eval/*` 스켈레톤, 루트 `.github` 없음 |
 | 9 | 부하테스트·SLO 동결 | `eval/perf` 자리표시자 |

@@ -5,7 +5,7 @@
 재순위·재작성을 수행한다. 키가 주어지면 운영 어댑터로 교체한다.
 
   - LexicalCrossEncoder: 질의-청크 어절 겹침 점수(CrossEncoder Protocol 구현).
-    reranker 서버 URL이 생기면 HTTP cross-encoder 어댑터로 교체.
+    RERANKER_SERVER_URL이 있으면 HttpCrossEncoder(llm/http_rerank.py)로 교체.
   - IdentityRewriteLLM: 재작성 LLM 폴백. 원본 질의를 그대로 반환(무해).
   - LLMRewriteLLM: OpenAI 호환 Chat으로 지시어 해소(운영 경로).
 """
@@ -98,20 +98,33 @@ class LLMRewriteLLM:
 
     transport는 {model, prompt} → {"answer": ...} 매핑(OpenAIChatTransport 재사용).
     실패는 QueryRewriter가 잡아 원본으로 폴백(graceful degradation)한다.
+    max_chars로 이력+질의 프롬프트를 잘라 Gemini 토큰·쿼터를 절약한다.
     """
 
-    def __init__(self, transport, model: str):
+    def __init__(self, transport, model: str, max_chars: int = 2000):
         self._transport = transport
         self._model = model
+        self._max_chars = max(200, max_chars)
 
     def rewrite(self, query: str, history: list[str]) -> str:
-        hist = "\n".join(f"- {h}" for h in history)
+        # 최근 이력부터 넣어 예산 안에서 최대한 맥락 유지
+        lines: list[str] = []
+        budget = self._max_chars - len(query) - 120
+        for h in reversed(list(history)):
+            piece = f"- {h}"
+            if sum(len(x) + 1 for x in lines) + len(piece) > budget:
+                break
+            lines.append(piece)
+        lines.reverse()
+        hist = "\n".join(lines) if lines else "(없음)"
         prompt = (
             "다음 대화의 '이전 질의 이력'을 참고해 마지막 '후속 질의'를 "
             "지시어(그건/그거/거기 등) 없이 독립적으로 검색 가능한 한국어 질의 "
             "한 문장으로 재작성하라. 설명 없이 재작성된 질의만 출력한다.\n\n"
             f"[이전 질의 이력]\n{hist}\n\n[후속 질의]\n{query}\n\n[재작성된 질의]"
         )
+        if len(prompt) > self._max_chars:
+            prompt = prompt[: self._max_chars]
         resp = self._transport.post({"model": self._model, "prompt": prompt})
         answer = (resp.get("answer") or "").strip()
         return answer or query

@@ -7,6 +7,10 @@
 #   2) .env에 DATABASE_URL=postgresql+psycopg://harag:harag@postgres:5432/harag
 #      (호스트에서 API만 돌릴 때는 localhost:5432)
 #   3) pip install 'psycopg[binary]>=3.1' 또는 pip install -e '.[postgres]'
+#
+# 리랭커(GPU TEI, 선택): 별도 호스트/컨테이너에 TEI /rerank를 띄운 뒤
+#   .env에 RERANKER_SERVER_URL=http://<host>:8080 을 넣는다.
+#   URL이 없으면 API가 LexicalCrossEncoder로 폴백한다(데모 가능).
 services:
   qdrant:
     image: qdrant/qdrant:latest

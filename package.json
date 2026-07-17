@@ -1,0 +1,23 @@
+{
+  "name": "health-insurance-chatbot",
+  "version": "1.0.0",
+  "description": "> 한글 행정문서 RAG 챗봇 · PDF 업로드 MVP (내부 코드명 `harag`)",
+  "main": "index.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Cbulls/health-insurance-chatbot.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Cbulls/health-insurance-chatbot/issues"
+  },
+  "homepage": "https://github.com/Cbulls/health-insurance-chatbot#readme"
+}
