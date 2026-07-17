@@ -63,7 +63,8 @@ class ConversationStore:
 
 
 class QueryRewriter:
-    def __init__(self, llm: RewriteLLM, store: ConversationStore):
+    def __init__(self, llm: RewriteLLM, store):
+        # store: ConversationStore | RedisConversationStore (append/get 계약)
         self._llm = llm
         self._store = store
 

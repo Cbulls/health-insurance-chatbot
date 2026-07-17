@@ -49,7 +49,18 @@ class TokenBucketLimiter:
 
 
 _limiter: TokenBucketLimiter | None = None
+_redis_limiter = None
 _limiter_lock = threading.Lock()
+
+
+def configure_redis(redis_client, prefix: str = "harag:") -> None:
+    """앱 기동 시 Redis가 있으면 공유 레이트제한으로 전환."""
+    global _redis_limiter
+    from harag.storage.redis_stores import RedisTokenBucketLimiter
+    qpm = get_settings().rate_limit_qpm
+    if qpm > 0:
+        _redis_limiter = RedisTokenBucketLimiter(
+            redis_client, qpm, prefix=prefix)
 
 
 def _get_limiter(per_minute: int) -> TokenBucketLimiter:
@@ -65,7 +76,10 @@ async def enforce_rate_limit(
 ) -> AuthContext:
     """require_auth를 감싸는 라우트 의존성 — 인증 후 owner별 요청 제한."""
     qpm = get_settings().rate_limit_qpm
-    if qpm > 0 and not _get_limiter(qpm).allow(auth.user_id):
+    if qpm <= 0:
+        return auth
+    limiter = _redis_limiter if _redis_limiter is not None else _get_limiter(qpm)
+    if not limiter.allow(auth.user_id):
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="요청이 너무 잦습니다. 잠시 후 다시 시도해 주세요.",

@@ -129,9 +129,22 @@ class Settings:
     #   postgresql+psycopg://harag:harag@localhost:5432/harag
     database_url: str
 
+    # ── Redis(선택) ──
+    # 비우면 인메모리 큐/캐시/레이트·대화 스토어 폴백.
+    # compose: redis://redis:6379/0  /  로컬: redis://localhost:6379/0
+    redis_url: str
+    redis_key_prefix: str          # 키 네임스페이스(기본 harag:)
+    redis_stream_maxlen: int       # 인제스트 스트림 approximate trim
+    ingest_visibility_sec: int     # PEL idle 후 reclaim(초)
+    ingest_max_attempts: int       # 실패 재시도 상한 후 DLQ
+
     @property
     def qdrant_url_or_none(self) -> str | None:
         return self.qdrant_url or None
+
+    @property
+    def redis_url_or_none(self) -> str | None:
+        return self.redis_url or None
 
 
 @lru_cache(maxsize=1)
@@ -183,4 +196,9 @@ def get_settings() -> Settings:
         auth_jwt_issuer=_get("AUTH_JWT_ISSUER", ""),
         database_url=_get("DATABASE_URL", "sqlite:///./data/harag.db")
                        or "sqlite:///./data/harag.db",
+        redis_url=_get("REDIS_URL", ""),
+        redis_key_prefix=_get("REDIS_KEY_PREFIX", "harag:") or "harag:",
+        redis_stream_maxlen=_get_int("REDIS_STREAM_MAXLEN", 10000),
+        ingest_visibility_sec=_get_int("INGEST_VISIBILITY_SEC", 120),
+        ingest_max_attempts=_get_int("INGEST_MAX_ATTEMPTS", 3),
     )

@@ -16,6 +16,14 @@ services:
     volumes:
       - qdrant_storage:/qdrant/storage
 
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
   postgres:
     profiles: ["postgres"]
     image: postgres:16
@@ -34,11 +42,14 @@ services:
     restart: unless-stopped
     depends_on:
       - qdrant
+      - redis
     ports:
       - "8000:8000"
     volumes:
       # SQLite 등록부 영속화(기본 DATABASE_URL)
       - harag_data:/app/data
+      # API↔워커 스풀 공유(업로드 PDF 임시 파일)
+      - harag_spool:/app/spool
     environment:
       # Qdrant 연결(컴포즈 네트워크 내부 호스트명). Qdrant Cloud를 쓰려면
       # .env에서 QDRANT_URL/QDRANT_API_KEY를 클라우드 값으로 덮어쓴다.
@@ -47,6 +58,9 @@ services:
       QDRANT_COLLECTION: ${QDRANT_COLLECTION:-harag_pdf_mvp}
       QDRANT_DISK_BUDGET_MB: ${QDRANT_DISK_BUDGET_MB:-3072}
       QDRANT_PAYLOAD_BYTES_PER_POINT: ${QDRANT_PAYLOAD_BYTES_PER_POINT:-2048}
+      # Redis — 비우면 인메모리 폴백(워커 불필요, API 인프로세스 인제스트)
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      HARAG_SPOOL_DIR: /app/spool
       # 문서 등록부. 비우면 sqlite:///./data/harag.db.
       # Postgres 예: postgresql+psycopg://harag:harag@postgres:5432/harag
       DATABASE_URL: ${DATABASE_URL:-sqlite:///./data/harag.db}
@@ -68,7 +82,36 @@ services:
       TOP_K: ${TOP_K:-20}
       MIN_SCORE: ${MIN_SCORE:-0.15}
 
+  # Redis 큐 소비자 — REDIS_URL이 설정된 경우 API와 함께 기동한다.
+  worker:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      - qdrant
+      - redis
+    command: ["python", "-m", "harag.indexing.run_worker"]
+    volumes:
+      - harag_data:/app/data
+      - harag_spool:/app/spool
+    environment:
+      QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
+      QDRANT_API_KEY: ${QDRANT_API_KEY:-}
+      QDRANT_COLLECTION: ${QDRANT_COLLECTION:-harag_pdf_mvp}
+      QDRANT_DISK_BUDGET_MB: ${QDRANT_DISK_BUDGET_MB:-3072}
+      QDRANT_PAYLOAD_BYTES_PER_POINT: ${QDRANT_PAYLOAD_BYTES_PER_POINT:-2048}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      HARAG_SPOOL_DIR: /app/spool
+      DATABASE_URL: ${DATABASE_URL:-sqlite:///./data/harag.db}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-}
+      EMBEDDING_API_BASE: ${EMBEDDING_API_BASE:-https://api.openai.com/v1}
+      EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
+      EMBEDDING_DIM: ${EMBEDDING_DIM:-}
+      EMBEDDING_SEND_DIMENSIONS: ${EMBEDDING_SEND_DIMENSIONS:-}
+
 volumes:
   qdrant_storage:
   postgres_data:
   harag_data:
+  redis_data:
+  harag_spool:

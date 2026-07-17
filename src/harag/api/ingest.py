@@ -1,11 +1,10 @@
 """
-인프로세스 수집(인제스트) 서비스 — MVP.
+수집(인제스트) 서비스.
 
-설계 원본은 메시지 큐 + 별도 indexing-worker로 읽기/쓰기를 물리 격리한다(NFR-2).
-MVP는 단일 프로세스에서 FastAPI BackgroundTasks로 비동기 처리한다:
-  업로드 → 즉시 202 → 백그라운드로 파싱·청킹·임베딩·Qdrant 적재.
+  - REDIS_URL 있음: 스풀 경로를 Redis Streams에 넣고 워커가 처리.
+  - REDIS_URL 없음: 전용 ThreadPoolExecutor로 인프로세스 처리(현행 MVP).
 
-문서 상태는 MetadataStore(SQLite 기본 / PostgreSQL 선택)에 영속화한다.
+문서 상태는 MetadataStore가 진실원천, Redis DocStatusCache는 읽기 가속.
 """
 from __future__ import annotations
 
@@ -14,11 +13,8 @@ import os
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from pathlib import Path
 
-from harag.chunking.chunker import ChunkingContext
-from harag.contracts.boundaries import ContractViolation, verify_boundary2
-from harag.retrieval.qdrant_store import CapacityExceededError
+from harag.indexing.pdf_pipeline import PdfIngestPipeline
 from harag.storage.metadata_store import MetadataStore
 
 logger = logging.getLogger("harag.ingest")
@@ -53,115 +49,121 @@ def _from_meta(rec) -> DocRecord:
 class InProcessIngest:
     def __init__(self, parser, chunker, embedder, store,
                  metadata: MetadataStore | None = None,
-                 max_workers: int = 2):
-        self._parser = parser
-        self._chunker = chunker
-        self._embedder = embedder
-        self._store = store
+                 max_workers: int = 2,
+                 queue=None,
+                 status_cache=None):
         self._metadata = metadata or MetadataStore(dsn="sqlite:///:memory:")
-        # register의 검사-후-등록을 원자화(동시 업로드 레이스 완화)
+        self._cache = status_cache
+        self._queue = queue  # RedisIngestQueue | None
+        on_failed = None
+        if queue is not None:
+            on_failed = queue.on_failed
+        self._pipeline = PdfIngestPipeline(
+            parser, chunker, embedder, store, self._metadata,
+            status_cache=status_cache, on_failed=on_failed)
         self._lock = threading.Lock()
-        # 파싱·임베딩은 CPU가 무겁다. asyncio.to_thread(쿼리 오프로드)와 같은
-        # 기본 스레드풀을 쓰면 대량 업로드가 질의 응답을 굶기므로 전용 풀로 격리.
         self._executor = ThreadPoolExecutor(
             max_workers=max_workers, thread_name_prefix="harag-ingest")
 
+    @property
+    def uses_queue(self) -> bool:
+        return self._queue is not None
+
     def submit(self, document_id: str, spool_path: str, filename: str,
                owner: str) -> None:
-        """스풀된 임시 파일을 전용 스레드풀에서 처리(완료 후 파일 삭제)."""
+        """스풀된 임시 파일을 큐 또는 전용 스레드풀로 위임."""
+        if self._queue is not None:
+            tags = [_owner_tag(owner)]
+            ok = self._queue.enqueue(
+                document_id, spool_path, filename, owner, acl_tags=tags)
+            if not ok:
+                # failed→재등록 후 in-flight 잔존이 흔한 원인 → 해제 후 1회 재시도
+                self._queue.clear_inflight(document_id)
+                ok = self._queue.enqueue(
+                    document_id, spool_path, filename, owner, acl_tags=tags)
+            if not ok:
+                rec = self._metadata.get_for_owner(document_id, owner)
+                # 이미 ready인 중복만 스풀 삭제. processing인데 enqueue 실패는
+                # Redis 장애일 수 있어 스풀을 보존한다.
+                if rec is not None and rec.status == "ready":
+                    logger.info(
+                        "queue duplicate %s status=ready — spool drop",
+                        document_id)
+                    try:
+                        os.unlink(spool_path)
+                    except OSError:
+                        pass
+                    return
+                logger.warning(
+                    "enqueue rejected for %s — spool kept at %s",
+                    document_id, spool_path)
+            return
         self._executor.submit(
-            self.process_file, document_id, spool_path, filename, owner)
+            self._pipeline.process_file, document_id, spool_path,
+            filename, owner)
 
     def process_file(self, document_id: str, spool_path: str, filename: str,
                      owner: str) -> None:
-        """임시 파일 경로 기반 처리 — bytes를 큐에 잡아두지 않아 메모리 절약."""
-        try:
-            raw = Path(spool_path).read_bytes()
-        except OSError:
-            logger.exception("ingest spool read failed: %s", document_id)
-            self._fail(document_id, owner, "internal_error: spool_read_failed")
-            return
-        finally:
-            try:
-                os.unlink(spool_path)
-            except OSError:
-                pass
-        self.process(document_id, raw, filename, owner)
+        self._pipeline.process_file(document_id, spool_path, filename, owner)
+
+    def process(self, document_id: str, raw: bytes, filename: str,
+                owner: str) -> None:
+        self._pipeline.process(document_id, raw, filename, owner)
 
     def register(self, document_id: str, filename: str, owner: str) -> str:
-        """멱등 등록. ready/processing이면 duplicate, 신규·failed 재시도면 accepted."""
         with self._lock:
-            return self._metadata.register_for_owner(document_id, filename, owner)
-
-    def process(self, document_id: str, raw: bytes, filename: str, owner: str) -> None:
-        """백그라운드 처리(파싱→청킹→임베딩→적재)."""
-        try:
-            ir = self._parser.parse(raw, document_id=document_id, filename=filename)
-            if ir.parse_status.value == "failed" or not ir.blocks:
-                self._fail(
-                    document_id, owner,
-                    "parse_failed (텍스트 추출 불가 — 스캔/암호 PDF일 수 있음)")
-                return
-
-            ctx = ChunkingContext(
-                acl_tags=[_owner_tag(owner)],
-                source_document=filename,
-                embedding_model_id=self._embedder.model_id,
-            )
-            chunks = self._chunker.chunk(ir, ctx)
-            if not chunks:
-                self._fail(document_id, owner, "no_chunks (본문이 비어 있음)")
-                return
-
-            # 용량 사전 검사 — 임베딩(비용이 드는 외부 API) 호출 전에 차단.
-            checker = getattr(self._store, "ensure_capacity_for", None)
-            if callable(checker):
-                checker(len(chunks))  # 초과 시 CapacityExceededError → 아래 except
-
-            # 경계2: 인용 계보 검증(위조/노이즈 오염 차단)
-            try:
-                verify_boundary2(ir, chunks)
-            except ContractViolation as e:
-                logger.warning("boundary2 violation on %s: %s", document_id, e)
-
-            embedded = self._embedder.embed(chunks)
-            n = self._store.index(embedded)
-
-            self._metadata.mark_ready(document_id, owner, n)
-            logger.info("ingested %s: %d chunks", document_id, n)
-        except CapacityExceededError as e:
-            logger.warning("capacity exceeded at index for %s: %s", document_id, e)
-            self._fail(
-                document_id, owner,
-                "capacity_exceeded (저장 공간 한도 — 기존 문서를 삭제하세요)")
-        except Exception as e:  # noqa: BLE001 — 실패는 상태로 노출(500 누설 방지)
-            logger.exception("ingest failed: %s", document_id)
-            self._fail(document_id, owner, f"internal_error: {type(e).__name__}")
+            result = self._metadata.register_for_owner(
+                document_id, filename, owner)
+        if result == "accepted" and self._cache is not None:
+            self._cache.set(document_id, owner, {
+                "document_id": document_id, "filename": filename,
+                "owner": owner, "status": "processing",
+                "n_chunks": 0, "error": None,
+            })
+        return result
 
     def status(self, document_id: str, owner: str) -> DocRecord | None:
+        if self._cache is not None:
+            cached = self._cache.get(document_id, owner)
+            if cached is not None:
+                return DocRecord(
+                    document_id=cached.get("document_id", document_id),
+                    filename=cached.get("filename", ""),
+                    owner=cached.get("owner", owner),
+                    status=cached.get("status", "processing"),
+                    n_chunks=int(cached.get("n_chunks") or 0),
+                    error=cached.get("error"),
+                )
         rec = self._metadata.get_for_owner(document_id, owner)
-        return _from_meta(rec) if rec else None
+        if rec is None:
+            return None
+        doc = _from_meta(rec)
+        if self._cache is not None:
+            self._cache.set(document_id, owner, {
+                "document_id": doc.document_id, "filename": doc.filename,
+                "owner": doc.owner, "status": doc.status,
+                "n_chunks": doc.n_chunks, "error": doc.error,
+            })
+        return doc
 
     def list_for_owner(self, owner: str) -> list[DocRecord]:
         return [_from_meta(r) for r in self._metadata.list_for_owner(owner)]
 
     def delete(self, document_id: str, owner: str) -> str:
-        """문서 삭제. 반환: 'deleted' | 'not_found' | 'busy'.
-
-        Qdrant 포인트를 지운 뒤 DB 등록도 제거한다(용량 한도 회수).
-        processing 중이면 busy — 완료/실패 후 다시 시도."""
         with self._lock:
             rec = self._metadata.get_for_owner(document_id, owner)
             if rec is None:
                 return "not_found"
             if rec.status == "processing":
                 return "busy"
-        deleter = getattr(self._store, "delete_document", None)
+        deleter = getattr(self._pipeline._store, "delete_document", None)
         if callable(deleter):
             deleter(document_id, [_owner_tag(owner)])
         self._metadata.delete_for_owner(document_id, owner)
-        logger.info("deleted document record %s for owner %s", document_id, owner)
+        if self._cache is not None:
+            self._cache.invalidate(document_id, owner)
+        if self._queue is not None:
+            self._queue.clear_inflight(document_id)
+        logger.info("deleted document record %s for owner %s",
+                    document_id, owner)
         return "deleted"
-
-    def _fail(self, document_id: str, owner: str, msg: str) -> None:
-        self._metadata.mark_failed(document_id, owner, msg)

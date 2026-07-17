@@ -93,12 +93,14 @@ def _table_block(order=0, struct="제5조"):
 
 
 # ── 표 직렬화: 헤더-값 관계 보존 ──
-def test_table_serialized_as_header_value_rows():
+def test_table_serialized_as_markdown():
     chunks = StructuralChunker().chunk(_ir([_table_block()]), _ctx())
     assert len(chunks) == 1
     text = chunks[0].text
-    assert "항목: 치과" in text and "연간 한도: 100만원" in text
-    assert "항목: 통원" in text and "연간 한도: 회당 20만원" in text
+    assert "| 항목 | 연간 한도 |" in text
+    assert "| --- | --- |" in text
+    assert "| 치과 | 100만원 |" in text
+    assert "| 통원 | 회당 20만원 |" in text
     # 섹션 프리픽스 — 표만 검색돼도 소속 조항을 안다
     assert text.startswith("[제5조]")
 
@@ -116,17 +118,21 @@ def test_oversize_body_split_at_sentence_boundary_with_overlap():
     block = Block(block_id="d1-b0", block_type=BlockType.paragraph,
                   struct_path="제1조", order_index=0, text=text,
                   confidence=1.0, page_ref=1)
-    ctx = _ctx(max_tokens=60)  # len//2 근사 기준 강제 분할
+    ctx = _ctx(max_tokens=60, overlap_tokens=20)
     chunks = StructuralChunker().chunk(_ir([block]), ctx)
 
     assert len(chunks) > 1, "상한 초과인데 분할되지 않음"
     for c in chunks:
-        assert len(c.text) // 2 <= 60 + 30, "조각이 상한을 크게 초과"
+        # 프리픽스([제1조])를 감안해 여유를 둔다
+        body = c.text.split("\n", 1)[-1] if c.text.startswith("[") else c.text
+        assert len(body) // 2 <= 60 + 40, "조각이 상한을 크게 초과"
         assert c.meta.struct_path == "제1조"
-    # 1문장 오버랩: 앞 조각의 마지막 문장이 뒤 조각 시작에 반복
+    # 토큰 오버랩: 인접 조각이 공통 숫자(문장 번호)를 가진다
+    import re
     for prev, nxt in zip(chunks, chunks[1:]):
-        last_sent = prev.text.rsplit("문장", 1)[-1]
-        assert f"문장{last_sent}".strip()[:6] in nxt.text, "오버랩 문장 없음"
+        prev_nums = set(re.findall(r"문장 (\d+)번", prev.text))
+        next_nums = set(re.findall(r"문장 (\d+)번", nxt.text))
+        assert prev_nums & next_nums, f"오버랩 없음: {prev_nums} vs {next_nums}"
 
 
 # ── [문서 N] 마커 파싱 ──

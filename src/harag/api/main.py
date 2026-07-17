@@ -23,6 +23,10 @@ from harag.config.settings import get_settings
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("harag.api")
 
+# /health Redis 관측용(선택)
+_redis_client = None
+_ingest_queue = None
+
 
 def _build_and_inject() -> None:
     """설정을 읽어 파이프라인·수집 서비스를 만들어 주입한다."""
@@ -43,6 +47,11 @@ def _build_and_inject() -> None:
     from harag.api.ingest import InProcessIngest
     from harag.api.deps import set_query_pipeline, set_ingest, set_vector_store
     from harag.storage.metadata_store import MetadataStore
+    from harag.storage.redis_client import get_redis
+    from harag.storage.redis_cache import DocStatusCache
+    from harag.storage.redis_ingest_queue import RedisIngestQueue
+    from harag.storage.redis_stores import RedisConversationStore
+    from harag.api import ratelimit as ratelimit_mod
 
     settings = get_settings()
 
@@ -54,6 +63,34 @@ def _build_and_inject() -> None:
         if raw_path and raw_path != ":memory:":
             Path(raw_path).parent.mkdir(parents=True, exist_ok=True)
     metadata = MetadataStore(dsn=db_url)
+
+    # Redis(선택): Streams 큐·상태캐시·대화이력·레이트제한. URL 없거나 실패 시 인메모리.
+    global _redis_client, _ingest_queue
+    if settings.redis_url and not os.environ.get("HARAG_SPOOL_DIR"):
+        raise RuntimeError(
+            "REDIS_URL이 설정됐는데 HARAG_SPOOL_DIR이 없습니다. "
+            "API와 워커가 같은 스풀 디렉터리를 공유해야 합니다 "
+            "(예: export HARAG_SPOOL_DIR=/tmp/harag_spool).")
+
+    redis = get_redis(settings.redis_url) if settings.redis_url else None
+    prefix = settings.redis_key_prefix
+    status_cache = (
+        DocStatusCache(redis, prefix=prefix) if redis is not None else None)
+    ingest_queue = (
+        RedisIngestQueue(
+            redis,
+            prefix=prefix,
+            stream_maxlen=settings.redis_stream_maxlen,
+            visibility_sec=settings.ingest_visibility_sec,
+            max_attempts=settings.ingest_max_attempts,
+        ) if redis is not None else None)
+    _redis_client = redis
+    _ingest_queue = ingest_queue
+    if redis is not None:
+        ratelimit_mod.configure_redis(redis, prefix=prefix)
+        conv_store = RedisConversationStore(redis, prefix=prefix)
+    else:
+        conv_store = ConversationStore()
 
     embedding_model = build_embedding_model(settings)
     # 적재(embedder)와 질의(store)가 반드시 같은 토크나이저를 공유해야
@@ -109,24 +146,28 @@ def _build_and_inject() -> None:
         rewrite_llm = LLMRewriteLLM(rewrite_transport, rewrite_model)
     else:
         rewrite_llm = IdentityRewriteLLM()
-    rewriter = QueryRewriter(rewrite_llm, ConversationStore())
+    rewriter = QueryRewriter(rewrite_llm, conv_store)
 
     pipeline = QueryPipelineImpl(retriever=store, generator=generator,
                                  reranker=reranker, rewriter=rewriter,
                                  top_k=settings.top_k)
     ingest = InProcessIngest(
         parser=PdfParser(), chunker=StructuralChunker(),
-        embedder=embedder, store=store, metadata=metadata)
+        embedder=embedder, store=store, metadata=metadata,
+        queue=ingest_queue, status_cache=status_cache)
 
     set_query_pipeline(pipeline)
     set_ingest(ingest)
     set_vector_store(store)
 
     logger.info(
-        "assembled: embedding=%s(dim=%d) llm=%s qdrant=%s db=%s rerank=%s rewrite=%s",
+        "assembled: embedding=%s(dim=%d) llm=%s qdrant=%s db=%s redis=%s "
+        "ingest=%s rerank=%s rewrite=%s",
         embedding_model.model_id, embedding_model.dim,
         settings.llm_provider, settings.qdrant_url or ":memory:",
         "sqlite" if db_url.startswith("sqlite") else "postgres",
+        "on" if redis is not None else "off",
+        "queue+worker" if ingest_queue is not None else "in-process",
         "llm" if llm_rerank else "lexical",
         type(rewrite_llm).__name__)
 
@@ -185,6 +226,23 @@ def create_app() -> FastAPI:
             cap = await asyncio.to_thread(store.capacity_status)
             if cap is not None:
                 body["capacity"] = cap
+
+        def _redis_health():
+            if _redis_client is None:
+                return {"enabled": False}
+            try:
+                pong = bool(_redis_client.ping())
+            except Exception:  # noqa: BLE001
+                return {"enabled": True, "ok": False}
+            out = {"enabled": True, "ok": pong}
+            if _ingest_queue is not None:
+                try:
+                    out.update(_ingest_queue.stats())
+                except Exception:  # noqa: BLE001
+                    pass
+            return out
+
+        body["redis"] = await asyncio.to_thread(_redis_health)
         return body
 
     # 프론트엔드 정적 서빙(있을 때만). API 라우트 뒤에 mount → /v1·/health 우선.

@@ -1,0 +1,366 @@
+{
+  "summary": {
+    "absent": {
+      "n": 2,
+      "hit_at_k": 1.0,
+      "mrr": 1.0,
+      "page_recall": 1.0,
+      "abstention_acc": 1.0,
+      "correct": 1.0
+    },
+    "body": {
+      "n": 4,
+      "hit_at_k": 1.0,
+      "mrr": 1.0,
+      "page_recall": 1.0,
+      "abstention_acc": 1.0,
+      "correct": 1.0
+    },
+    "multi_clause": {
+      "n": 1,
+      "hit_at_k": 1.0,
+      "mrr": 1.0,
+      "page_recall": 1.0,
+      "abstention_acc": 1.0,
+      "correct": 1.0
+    },
+    "table": {
+      "n": 3,
+      "hit_at_k": 1.0,
+      "mrr": 1.0,
+      "page_recall": 1.0,
+      "abstention_acc": 1.0,
+      "correct": 1.0
+    }
+  },
+  "per_query": [
+    {
+      "qid": "q1",
+      "qtype": "body",
+      "query": "How many days do I have to file a claim after treatment?",
+      "hit_at_k": true,
+      "mrr": 1.0,
+      "page_recall": 1.0,
+      "abstained": false,
+      "abstention_ok": true,
+      "correct": true,
+      "cite_exists": true,
+      "cite_on_gold": true,
+      "n_cited": 1,
+      "answer": "보험금 청구는 진료일로부터 30일 이내에 해야 합니다 [문서 1].",
+      "top_pages": [
+        [
+          2
+        ],
+        [
+          2
+        ],
+        [
+          1
+        ],
+        [
+          4
+        ],
+        [
+          4
+        ]
+      ]
+    },
+    {
+      "qid": "q2",
+      "qtype": "body",
+      "query": "What documents are required to file a claim?",
+      "hit_at_k": true,
+      "mrr": 1.0,
+      "page_recall": 1.0,
+      "abstained": false,
+      "abstention_ok": true,
+      "correct": true,
+      "cite_exists": true,
+      "cite_on_gold": true,
+      "n_cited": 1,
+      "answer": "보험금 청구를 위해 필요한 서류는 청구서(claim form), 의료비 영수증(medical receipts), 그리고 담당 의사가 발급한 진단서(diagnosis certificate)입니다 [문서 1].",
+      "top_pages": [
+        [
+          2
+        ],
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          4
+        ],
+        [
+          3
+        ]
+      ]
+    },
+    {
+      "qid": "q3",
+      "qtype": "body",
+      "query": "What is the lifetime maximum benefit of this policy?",
+      "hit_at_k": true,
+      "mrr": 1.0,
+      "page_recall": 1.0,
+      "abstained": false,
+      "abstention_ok": true,
+      "correct": true,
+      "cite_exists": true,
+      "cite_on_gold": true,
+      "n_cited": 1,
+      "answer": "이 보험의 평생 최대 보장 한도는 1억 원(100 million KRW)입니다 [문서 1].",
+      "top_pages": [
+        [
+          3
+        ],
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ]
+      ]
+    },
+    {
+      "qid": "q4",
+      "qtype": "body",
+      "query": "Is cosmetic surgery covered by this policy?",
+      "hit_at_k": true,
+      "mrr": 1.0,
+      "page_recall": 1.0,
+      "abstained": false,
+      "abstention_ok": true,
+      "correct": true,
+      "cite_exists": true,
+      "cite_on_gold": true,
+      "n_cited": 1,
+      "answer": "No, cosmetic surgery is not covered by this policy as it is explicitly listed as an exclusion [문서 1].",
+      "top_pages": [
+        [
+          4
+        ],
+        [
+          3
+        ],
+        [
+          1
+        ],
+        [
+          1
+        ],
+        [
+          4
+        ]
+      ]
+    },
+    {
+      "qid": "q5",
+      "qtype": "table",
+      "query": "What is the annual limit for dental treatment?",
+      "hit_at_k": true,
+      "mrr": 1.0,
+      "page_recall": 1.0,
+      "abstained": false,
+      "abstention_ok": true,
+      "correct": true,
+      "cite_exists": true,
+      "cite_on_gold": true,
+      "n_cited": 1,
+      "answer": "치과 치료(Dental)의 연간 한도는 1,000,000 KRW입니다 [문서 1].",
+      "top_pages": [
+        [
+          3
+        ],
+        [
+          3
+        ],
+        [
+          2
+        ],
+        [
+          2
+        ],
+        [
+          4
+        ]
+      ]
+    },
+    {
+      "qid": "q6",
+      "qtype": "table",
+      "query": "What is the copayment rate for inpatient treatment?",
+      "hit_at_k": true,
+      "mrr": 1.0,
+      "page_recall": 1.0,
+      "abstained": false,
+      "abstention_ok": true,
+      "correct": true,
+      "cite_exists": true,
+      "cite_on_gold": true,
+      "n_cited": 1,
+      "answer": "입원 치료(Inpatient)의 본인부담금 비율(Copayment)은 20%입니다 [문서 1].",
+      "top_pages": [
+        [
+          3
+        ],
+        [
+          3
+        ],
+        [
+          2
+        ],
+        [
+          4
+        ],
+        [
+          2
+        ]
+      ]
+    },
+    {
+      "qid": "q7",
+      "qtype": "table",
+      "query": "What is the annual limit for outpatient visits?",
+      "hit_at_k": true,
+      "mrr": 1.0,
+      "page_recall": 1.0,
+      "abstained": false,
+      "abstention_ok": true,
+      "correct": true,
+      "cite_exists": true,
+      "cite_on_gold": true,
+      "n_cited": 1,
+      "answer": "통원(Outpatient)의 연간 한도는 방문당 200,000원입니다 [문서 1].",
+      "top_pages": [
+        [
+          3
+        ],
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          4
+        ],
+        [
+          1
+        ]
+      ]
+    },
+    {
+      "qid": "q8",
+      "qtype": "multi_clause",
+      "query": "Which expenses does the insurer cover, and what is the copayment for outpatient care?",
+      "hit_at_k": true,
+      "mrr": 1.0,
+      "page_recall": 1.0,
+      "abstained": false,
+      "abstention_ok": true,
+      "correct": true,
+      "cite_exists": true,
+      "cite_on_gold": true,
+      "n_cited": 2,
+      "answer": "보험사는 질병 또는 상해 치료를 위해 발생한 입원비와 통원비를 보장합니다 [문서 1]. 통원 치료의 본인부담금(Copayment)은 30%입니다 [문서 2].",
+      "top_pages": [
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          3
+        ],
+        [
+          4
+        ],
+        [
+          1
+        ]
+      ]
+    },
+    {
+      "qid": "q9",
+      "qtype": "absent",
+      "query": "What is the recipe for kimchi stew?",
+      "hit_at_k": true,
+      "mrr": 1.0,
+      "page_recall": 1.0,
+      "abstained": true,
+      "abstention_ok": true,
+      "correct": true,
+      "cite_exists": true,
+      "cite_on_gold": null,
+      "n_cited": 0,
+      "answer": null,
+      "top_pages": [
+        [
+          4
+        ],
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          3
+        ],
+        [
+          1
+        ]
+      ]
+    },
+    {
+      "qid": "q10",
+      "qtype": "absent",
+      "query": "What is the monthly premium for a 40-year-old male?",
+      "hit_at_k": true,
+      "mrr": 1.0,
+      "page_recall": 1.0,
+      "abstained": true,
+      "abstention_ok": true,
+      "correct": true,
+      "cite_exists": true,
+      "cite_on_gold": null,
+      "n_cited": 0,
+      "answer": null,
+      "top_pages": [
+        [
+          2
+        ],
+        [
+          1
+        ],
+        [
+          4
+        ],
+        [
+          3
+        ],
+        [
+          4
+        ]
+      ]
+    }
+  ],
+  "meta": {
+    "ran_at": "2026-07-17T00:47:59.703081+00:00",
+    "k": 5,
+    "local": false,
+    "embedding_model": "gemini-embedding-001",
+    "llm_provider": "openai",
+    "n_chunks": 9
+  }
+}

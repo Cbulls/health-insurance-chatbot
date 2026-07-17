@@ -35,7 +35,12 @@ async def _spool_upload(file: UploadFile, max_bytes: int) -> tuple[str, str, int
     """
     hasher = hashlib.sha256()
     total = 0
-    fd, path = tempfile.mkstemp(prefix="harag_upload_", suffix=".pdf")
+    # 워커와 API가 같은 경로를 보려면 HARAG_SPOOL_DIR(공유 볼륨)을 쓴다.
+    spool_dir = os.environ.get("HARAG_SPOOL_DIR") or None
+    if spool_dir:
+        os.makedirs(spool_dir, exist_ok=True)
+    fd, path = tempfile.mkstemp(
+        prefix="harag_upload_", suffix=".pdf", dir=spool_dir)
     try:
         with os.fdopen(fd, "wb") as out:
             while True:
