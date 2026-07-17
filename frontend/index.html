@@ -20,14 +20,23 @@
         <div class="auth-demo" id="authDemo">
           세션: <span id="ownerId"></span>
         </div>
-        <label class="auth-label" for="jwtInput">JWT (기관 발급 토큰)</label>
-        <textarea id="jwtInput" class="auth-jwt" rows="2"
-                  placeholder="Bearer 토큰을 붙여넣으세요"></textarea>
-        <div class="auth-actions">
-          <button type="button" id="jwtSaveBtn" class="btn-secondary">토큰 저장</button>
-          <button type="button" id="jwtClearBtn" class="btn-ghost">지우기</button>
+        <div class="auth-actions auth-sso-row">
+          <button type="button" id="ssoLoginBtn" class="btn-secondary" hidden>
+            기관 계정으로 로그인
+          </button>
+          <button type="button" id="logoutBtn" class="btn-ghost" hidden>로그아웃</button>
         </div>
         <div class="auth-status" id="authStatus"></div>
+        <details class="auth-advanced" id="authAdvanced">
+          <summary>고급 · JWT 붙여넣기</summary>
+          <label class="auth-label" for="jwtInput">JWT (기관 발급 토큰)</label>
+          <textarea id="jwtInput" class="auth-jwt" rows="2"
+                    placeholder="Bearer 토큰을 붙여넣으세요"></textarea>
+          <div class="auth-actions">
+            <button type="button" id="jwtSaveBtn" class="btn-secondary">토큰 저장</button>
+            <button type="button" id="jwtClearBtn" class="btn-ghost">지우기</button>
+          </div>
+        </details>
       </div>
 
       <div class="upload" id="dropzone">
@@ -38,15 +47,34 @@
           <div class="upload-text">PDF·Word·한글 문서를 끌어다 놓거나<br /><b>클릭해서 업로드</b></div>
           <div class="upload-hint">권장: PDF·HWPX·DOCX · HWP는 표 제한 · 스캔 PDF 불가</div>
           <div class="upload-policy">한글 문서는 가능하면 HWPX로 변환 후 올리세요. 바이너리 HWP는 본문 검색만 안정적입니다.</div>
+          <label class="auth-label" for="uploadTarget">업로드 대상</label>
+          <select id="uploadTarget" class="upload-target">
+            <option value="personal">내 업로드</option>
+            <option value="shared" id="uploadTargetShared" hidden>공용 규정</option>
+          </select>
           <div class="upload-busy" id="uploadBusy" hidden>업로드 중…</div>
         </div>
       </div>
 
       <div class="docs">
-        <div class="docs-title">내 문서</div>
+        <div class="docs-title-row">
+          <div class="docs-title">사내 지식 라이브러리</div>
+          <button type="button" id="createCollectionBtn" class="btn-ghost btn-tiny" hidden>
+            컬렉션+
+          </button>
+        </div>
+        <p class="docs-hint">관리자가 올린 법령·매뉴얼이 모든 질의에 함께 참조됩니다.</p>
+        <ul id="libraryList" class="doc-list collection-list"></ul>
+        <div class="docs-empty" id="libraryEmpty">
+          라이브러리 컬렉션 없음
+        </div>
+        <div class="docs-title docs-title-spaced">공용 규정</div>
+        <ul id="sharedDocList" class="doc-list"></ul>
+        <div class="docs-empty" id="sharedDocsEmpty">공용 규정 없음</div>
+        <div class="docs-title docs-title-spaced">내 업로드</div>
         <ul id="docList" class="doc-list"></ul>
         <div class="docs-empty" id="docsEmpty">
-          문서 없음 — 텍스트 PDF·HWPX·DOCX를 권장합니다
+          개인 문서 없음 — 텍스트 PDF·HWPX·DOCX를 권장합니다
         </div>
       </div>
     </aside>

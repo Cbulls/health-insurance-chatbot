@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -36,6 +37,8 @@ class GoldQuery:
     # 갱신 거버넌스: 어떤 문서에서 왔는가. 그 문서 개정 시 stale.
     source_document_id: str
     stale: bool = False
+    # 답변에 포함되면 실패로 보는 금지 주장(개정 전 금액 등).
+    forbidden_claims: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -118,6 +121,34 @@ def citation_faithful(out: SystemOutput) -> bool:
     return all(c in set(out.retrieved_chunk_ids) for c in out.cited_chunk_ids)
 
 
+_TOKEN_RE = re.compile(r"[0-9A-Za-z가-힣]{2,}")
+
+
+def _answer_keywords(text: str) -> list[str]:
+    return _TOKEN_RE.findall((text or "").lower())
+
+
+def answer_correct(gold: GoldQuery, out: SystemOutput) -> bool | None:
+    """gold_answer 키워드 포함 + forbidden_claims 부재.
+
+    채점 대상이 아니면 None(집계에서 제외). absent·gold_answer 없음 → None.
+    """
+    if gold.qtype == QueryType.absent or not gold.gold_answer:
+        return None
+    if out.answer is None:
+        return False
+    ans = out.answer
+    for bad in gold.forbidden_claims or []:
+        if bad and bad in ans:
+            return False
+    keys = _answer_keywords(gold.gold_answer)
+    if not keys:
+        return gold.gold_answer in ans
+    # 키워드 과반이 답에 포함되면 정답으로 본다(동의어·문장 변형 여유)
+    hits = sum(1 for k in keys if k in ans.lower())
+    return hits >= max(1, (len(keys) + 1) // 2)
+
+
 # ════════ 유형별 분리 집계(단일 평균 금지) ════════
 @dataclass
 class TypeReport:
@@ -129,6 +160,7 @@ class TypeReport:
     citation_faithful_rate: float
     ndcg_k: float = 0.0
     context_noise: float = 0.0
+    answer_acc: float = 1.0  # gold_answer 있는 질의만; 없으면 중립 1.0
 
 
 def evaluate(gold_set: list[GoldQuery],
@@ -149,7 +181,10 @@ def evaluate(gold_set: list[GoldQuery],
         cf = sum(citation_faithful(outputs[g.qid]) for g in qs) / n
         nd = sum(ndcg_at_k(g.gold_chunk_ids, outputs[g.qid].retrieved_chunk_ids, k) for g in qs) / n
         nz = sum(context_noise_rate(g.gold_chunk_ids, outputs[g.qid].retrieved_chunk_ids, k) for g in qs) / n
-        reports[qtype] = TypeReport(qtype, n, hk, mr, ab, cf, nd, nz)
+        scored = [answer_correct(g, outputs[g.qid]) for g in qs]
+        scored = [x for x in scored if x is not None]
+        aa = (sum(1 for x in scored if x) / len(scored)) if scored else 1.0
+        reports[qtype] = TypeReport(qtype, n, hk, mr, ab, cf, nd, nz, aa)
     return reports
 
 
@@ -160,6 +195,8 @@ class QualitySLO:
     min_mrr: float
     min_abstention_acc: float       # absent 유형에 단독 적용
     min_citation_faithful: float
+    # 0이면 미적용(기존 게이트 호환). >0이면 gold_answer 채점 강제.
+    min_answer_acc: float = 0.0
 
 
 def ci_gate(reports: dict[QueryType, TypeReport], slo: QualitySLO) -> tuple[bool, list[str]]:
@@ -180,4 +217,7 @@ def ci_gate(reports: dict[QueryType, TypeReport], slo: QualitySLO) -> tuple[bool
             violations.append(f"[BLOCK] {qtype.value}: mrr {r.mrr:.2f} < {slo.min_mrr}")
         if r.citation_faithful_rate < slo.min_citation_faithful:
             violations.append(f"[BLOCK] {qtype.value}: citation {r.citation_faithful_rate:.2f} < {slo.min_citation_faithful}")
+        if slo.min_answer_acc > 0 and r.answer_acc < slo.min_answer_acc:
+            violations.append(
+                f"[BLOCK] {qtype.value}: answer_acc {r.answer_acc:.2f} < {slo.min_answer_acc}")
     return (len(violations) == 0, violations)

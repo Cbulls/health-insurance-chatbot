@@ -53,6 +53,8 @@ const fileInput = document.getElementById("fileInput");
 const uploadBusy = document.getElementById("uploadBusy");
 const docList = document.getElementById("docList");
 const docsEmpty = document.getElementById("docsEmpty");
+const sharedDocList = document.getElementById("sharedDocList");
+const sharedDocsEmpty = document.getElementById("sharedDocsEmpty");
 const messages = document.getElementById("messages");
 const emptyState = document.getElementById("emptyState");
 const composer = document.getElementById("composer");
@@ -74,21 +76,125 @@ const jwtClearBtn = document.getElementById("jwtClearBtn");
 const authStatus = document.getElementById("authStatus");
 const authModeLabel = document.getElementById("authModeLabel");
 const ownerIdEl = document.getElementById("ownerId");
+const ssoLoginBtn = document.getElementById("ssoLoginBtn");
+const logoutBtn = document.getElementById("logoutBtn");
+const uploadTarget = document.getElementById("uploadTarget");
+const uploadTargetShared = document.getElementById("uploadTargetShared");
+const libraryList = document.getElementById("libraryList");
+const libraryEmpty = document.getElementById("libraryEmpty");
+const createCollectionBtn = document.getElementById("createCollectionBtn");
 
+let canShare = false;
+let ssoEnabled = false;
+let collectionsCache = [];
+let expandedCollections = new Set();
+
+function captureHashToken() {
+  const hash = (location.hash || "").replace(/^#/, "");
+  if (!hash) return;
+  const params = new URLSearchParams(hash);
+  const token = params.get("access_token");
+  if (token) {
+    sessionStorage.setItem(LS_JWT, token);
+    localStorage.removeItem(LS_JWT);
+    history.replaceState(null, "", location.pathname + location.search);
+    toast("기관 계정으로 로그인했습니다.");
+  }
+}
+
+captureHashToken();
 ownerIdEl.textContent = ensureOwnerId();
 jwtInput.value = getJwt();
 updateAuthUi();
+refreshAuthConfig();
 
 function updateAuthUi() {
   const jwt = getJwt();
   if (jwt) {
-    authModeLabel.textContent = "JWT 로그인";
-    authStatus.textContent = "토큰이 저장되어 있습니다.";
+    authModeLabel.textContent = "기관 로그인";
+    authStatus.textContent = "로그인됨 — 토큰이 이 탭에 저장되어 있습니다.";
+    logoutBtn.hidden = false;
   } else {
     authModeLabel.textContent = "데모 세션";
-    authStatus.textContent = "";
+    authStatus.textContent = ssoEnabled
+      ? "기관 계정으로 로그인하거나 데모 세션을 사용하세요."
+      : "";
+    logoutBtn.hidden = true;
+  }
+  ssoLoginBtn.hidden = !ssoEnabled;
+  createCollectionBtn.hidden = !canShare;
+  if (uploadTargetShared) uploadTargetShared.hidden = !canShare;
+  syncUploadTargetOptions();
+}
+
+function syncUploadTargetOptions() {
+  if (!uploadTarget) return;
+  // 라이브러리 옵션 갱신
+  const keep = uploadTarget.value;
+  [...uploadTarget.querySelectorAll("option[data-lib]")].forEach((o) => o.remove());
+  collectionsCache.forEach((c) => {
+    if (!canShare) return;
+    const opt = document.createElement("option");
+    opt.value = "lib:" + c.id;
+    opt.dataset.lib = "1";
+    opt.textContent = "라이브러리 · " + c.title;
+    uploadTarget.appendChild(opt);
+  });
+  if ([...uploadTarget.options].some((o) => o.value === keep)) {
+    uploadTarget.value = keep;
+  } else {
+    uploadTarget.value = "personal";
   }
 }
+
+async function refreshAuthConfig() {
+  try {
+    const res = await fetch(`${API}/v1/auth/config`);
+    if (res.ok) {
+      const cfg = await res.json();
+      ssoEnabled = !!cfg.sso_enabled;
+    }
+  } catch (_) {}
+  if (getJwt()) {
+    try {
+      const me = await fetch(`${API}/v1/auth/me`, { headers: headers() });
+      if (me.status === 401) {
+        sessionStorage.removeItem(LS_JWT);
+        localStorage.removeItem(LS_JWT);
+        jwtInput.value = "";
+        canShare = false;
+        toast("세션이 만료되었습니다. 다시 로그인해 주세요.");
+        openSidebar();
+      } else if (me.ok) {
+        const info = await me.json();
+        canShare = !!info.can_share;
+        authStatus.textContent =
+          `로그인: ${info.user_id}` +
+          (info.department ? ` · ${info.department}` : "") +
+          (canShare ? " · 공용 등록 가능" : "");
+      }
+    } catch (_) {}
+  } else {
+    canShare = false;
+  }
+  updateAuthUi();
+}
+
+ssoLoginBtn.addEventListener("click", () => {
+  location.href = `${API}/v1/auth/login`;
+});
+logoutBtn.addEventListener("click", async () => {
+  sessionStorage.removeItem(LS_JWT);
+  localStorage.removeItem(LS_JWT);
+  jwtInput.value = "";
+  canShare = false;
+  try {
+    await fetch(`${API}/v1/auth/logout`, { method: "POST" });
+  } catch (_) {}
+  updateAuthUi();
+  toast("로그아웃했습니다.");
+  refreshDocs();
+});
 
 jwtSaveBtn.addEventListener("click", () => {
   const v = jwtInput.value.trim();
@@ -98,14 +204,14 @@ jwtSaveBtn.addEventListener("click", () => {
   }
   sessionStorage.setItem(LS_JWT, v);
   localStorage.removeItem(LS_JWT);
-  updateAuthUi();
   toast("토큰을 저장했습니다(이 탭 세션).");
-  refreshDocs();
+  refreshAuthConfig().then(() => refreshDocs());
 });
 jwtClearBtn.addEventListener("click", () => {
   sessionStorage.removeItem(LS_JWT);
   localStorage.removeItem(LS_JWT);
   jwtInput.value = "";
+  canShare = false;
   updateAuthUi();
   toast("토큰을 지웠습니다. 데모 세션을 사용합니다.");
   refreshDocs();
@@ -153,8 +259,8 @@ function updateComposerGate() {
   queryInput.disabled = !ok;
   sendBtn.disabled = !ok || !!streamAbort;
   composerHint.textContent = readyCount > 0
-    ? "업로드한 문서 내용에 근거해 답합니다."
-    : "준비된 문서가 없습니다. PDF·Word·한글 문서를 업로드하세요.";
+    ? "내 문서·공용 규정·사내 지식 라이브러리를 함께 참조해 답합니다."
+    : "준비된 문서가 없습니다. PDF를 올리거나 라이브러리 문서를 확인하세요.";
 }
 
 dropzone.addEventListener("click", () => {
@@ -193,6 +299,12 @@ async function uploadFile(file) {
   }
   const form = new FormData();
   form.append("file", file);
+  const target = (uploadTarget && uploadTarget.value) || "personal";
+  if (target === "shared" && canShare) {
+    form.append("shared", "true");
+  } else if (target.startsWith("lib:") && canShare) {
+    form.append("collection_id", target.slice(4));
+  }
   setUploading(true);
   updateComposerGate();
   try {
@@ -247,60 +359,177 @@ async function pollDoc(id, tries = 0) {
   } catch (_) {}
 }
 
+function renderDocItem(d, { allowDelete }) {
+  const li = document.createElement("li");
+  li.className = "doc-item";
+  const name = document.createElement("span");
+  name.className = "doc-name";
+  name.title = d.filename || "";
+  name.textContent = d.filename || "";
+  const meta = document.createElement("span");
+  meta.className = "doc-meta";
+  const badge = document.createElement("span");
+  badge.className = "badge " + d.status;
+  badge.textContent = statusLabel(d.status);
+  meta.appendChild(badge);
+  if (d.scope === "shared") {
+    const sc = document.createElement("span");
+    sc.className = "badge-scope";
+    sc.textContent = "공용";
+    meta.appendChild(sc);
+  }
+  if (d.scope === "library") {
+    const sc = document.createElement("span");
+    sc.className = "badge-lib";
+    sc.textContent = "지식";
+    meta.appendChild(sc);
+  }
+  if (d.status === "ready") {
+    const chunks = document.createElement("span");
+    chunks.textContent = d.n_chunks + " 청크";
+    meta.appendChild(chunks);
+  }
+  if (allowDelete && d.status !== "processing") {
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "doc-delete";
+    del.textContent = "삭제";
+    del.addEventListener("click", (e) => {
+      e.stopPropagation();
+      deleteDoc(d.document_id, d.filename);
+    });
+    meta.appendChild(del);
+  }
+  li.appendChild(name);
+  li.appendChild(meta);
+  if (d.error) {
+    const err = document.createElement("span");
+    err.className = "doc-error";
+    err.textContent = errorLabel(d.error);
+    li.appendChild(err);
+  }
+  return li;
+}
+
+async function refreshCollections() {
+  try {
+    const res = await fetch(`${API}/v1/collections`, { headers: headers() });
+    if (!res.ok) {
+      collectionsCache = [];
+      return;
+    }
+    collectionsCache = await res.json();
+  } catch (_) {
+    collectionsCache = [];
+  }
+  syncUploadTargetOptions();
+}
+
+function renderLibrary() {
+  if (!libraryList) return;
+  libraryList.innerHTML = "";
+  libraryEmpty.hidden = collectionsCache.length > 0;
+  collectionsCache.forEach((c) => {
+    const li = document.createElement("li");
+    li.className = "collection-item";
+    const head = document.createElement("div");
+    head.className = "collection-head";
+    const title = document.createElement("span");
+    title.textContent = `${expandedCollections.has(c.id) ? "▾" : "▸"} ${c.title} (${c.n_documents || 0})`;
+    head.appendChild(title);
+    head.addEventListener("click", async () => {
+      if (expandedCollections.has(c.id)) expandedCollections.delete(c.id);
+      else expandedCollections.add(c.id);
+      await refreshDocs();
+    });
+    li.appendChild(head);
+    if (expandedCollections.has(c.id)) {
+      const ul = document.createElement("ul");
+      ul.className = "collection-docs";
+      ul.dataset.collectionId = c.id;
+      li.appendChild(ul);
+    }
+    libraryList.appendChild(li);
+  });
+}
+
+async function fillExpandedCollectionDocs(docs) {
+  const byColl = {};
+  docs.filter((d) => d.scope === "library").forEach((d) => {
+    const id = d.collection_id || "";
+    (byColl[id] || (byColl[id] = [])).push(d);
+  });
+  libraryList.querySelectorAll(".collection-docs").forEach((ul) => {
+    const cid = ul.dataset.collectionId;
+    ul.innerHTML = "";
+    (byColl[cid] || []).forEach((d) => {
+      ul.appendChild(renderDocItem(d, { allowDelete: canShare }));
+    });
+    if (!(byColl[cid] || []).length) {
+      const empty = document.createElement("li");
+      empty.className = "docs-empty";
+      empty.style.display = "block";
+      empty.textContent = "문서 없음 — 업로드 대상을 이 컬렉션으로 선택하세요.";
+      ul.appendChild(empty);
+    }
+  });
+}
+
 async function refreshDocs() {
   try {
+    await refreshCollections();
+    renderLibrary();
     const res = await fetch(`${API}/v1/documents`, { headers: headers() });
     if (res.status === 401) {
-      toast("인증이 필요합니다. JWT 토큰을 저장해 주세요.");
+      toast("인증이 필요합니다. 로그인해 주세요.");
+      openSidebar();
       return;
     }
     if (!res.ok) return;
     const docs = await res.json();
+    const personal = docs.filter((d) => (d.scope || "personal") === "personal");
+    const shared = docs.filter((d) => d.scope === "shared");
     docList.innerHTML = "";
+    sharedDocList.innerHTML = "";
     readyCount = docs.filter((d) => d.status === "ready").length;
-    docsEmpty.hidden = docs.length > 0;
-    docs.forEach((d) => {
-      const li = document.createElement("li");
-      li.className = "doc-item";
-      const name = document.createElement("span");
-      name.className = "doc-name";
-      name.title = d.filename || "";
-      name.textContent = d.filename || "";
-      const meta = document.createElement("span");
-      meta.className = "doc-meta";
-      const badge = document.createElement("span");
-      badge.className = "badge " + d.status;
-      badge.textContent = statusLabel(d.status);
-      meta.appendChild(badge);
-      if (d.status === "ready") {
-        const chunks = document.createElement("span");
-        chunks.textContent = d.n_chunks + " 청크";
-        meta.appendChild(chunks);
-      }
-      if (d.status !== "processing") {
-        const del = document.createElement("button");
-        del.type = "button";
-        del.className = "doc-delete";
-        del.textContent = "삭제";
-        del.addEventListener("click", (e) => {
-          e.stopPropagation();
-          deleteDoc(d.document_id, d.filename);
-        });
-        meta.appendChild(del);
-      }
-      li.appendChild(name);
-      li.appendChild(meta);
-      if (d.error) {
-        const err = document.createElement("span");
-        err.className = "doc-error";
-        err.textContent = errorLabel(d.error);
-        li.appendChild(err);
-      }
-      docList.appendChild(li);
+    docsEmpty.hidden = personal.length > 0;
+    sharedDocsEmpty.hidden = shared.length > 0;
+    personal.forEach((d) => {
+      docList.appendChild(renderDocItem(d, { allowDelete: true }));
     });
+    shared.forEach((d) => {
+      sharedDocList.appendChild(
+        renderDocItem(d, { allowDelete: canShare }));
+    });
+    await fillExpandedCollectionDocs(docs);
     updateComposerGate();
   } catch (_) {}
 }
+
+createCollectionBtn.addEventListener("click", async () => {
+  const title = prompt("컬렉션 이름 (예: 건강보험법령)");
+  if (!title || !title.trim()) return;
+  const description = prompt("설명 (선택)", "사내 참조용 법령·매뉴얼") || "";
+  try {
+    const res = await fetch(`${API}/v1/collections`, {
+      method: "POST",
+      headers: headers({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ title: title.trim(), description }),
+    });
+    if (res.status === 403) {
+      toast("컬렉션 생성 권한이 없습니다 (admin/doc_admin).");
+      return;
+    }
+    if (!res.ok) throw new Error("create " + res.status);
+    const c = await res.json();
+    toast(`컬렉션 생성: ${c.title}`);
+    expandedCollections.add(c.id);
+    await refreshDocs();
+    if (uploadTarget) uploadTarget.value = "lib:" + c.id;
+  } catch (err) {
+    toast("컬렉션 생성 실패: " + err.message);
+  }
+});
 
 async function deleteDoc(id, filename) {
   if (!confirm(`「${filename || id}」문서를 삭제할까요?\n검색 인덱스에서도 제거됩니다.`))
@@ -435,14 +664,20 @@ async function streamAnswer(query) {
     if (res.status === 401) {
       bubble.classList.remove("thinking");
       bubble.classList.add("abstain");
-      bubble.textContent = "인증이 필요합니다. 왼쪽에서 JWT 토큰을 저장해 주세요.";
+      bubble.textContent = httpErrorMessage(
+        res.status, await res.json().catch(() => ({})),
+        "인증이 필요합니다. 왼쪽에서 로그인해 주세요.");
       openSidebar();
       return;
     }
     if (res.status === 429) {
       bubble.classList.remove("thinking");
       bubble.classList.add("abstain");
-      bubble.textContent = "요청이 너무 잦습니다. 잠시 후 다시 시도해 주세요.";
+      const retry = res.headers.get("Retry-After");
+      bubble.textContent = httpErrorMessage(
+        res.status, await res.json().catch(() => ({})),
+        "요청이 너무 잦습니다. 잠시 후 다시 시도해 주세요.",
+        retry);
       return;
     }
     if (!res.ok || !res.body) throw new Error("query " + res.status);
@@ -474,6 +709,12 @@ async function streamAnswer(query) {
         }
         answer += evt.data;
         bubble.textContent = answer;
+      } else if (evt.kind === "revoke") {
+        // 스트림 중 토큰이 나갔더라도 출력 가드 실패 시 무효화
+        bubble.classList.remove("thinking");
+        bubble.classList.add("abstain");
+        answer = "";
+        bubble.textContent = abstainMessage(evt.data);
       } else if (evt.kind === "abstain") {
         bubble.classList.remove("thinking");
         bubble.classList.add("abstain");
@@ -508,6 +749,36 @@ async function streamAnswer(query) {
   }
 }
 
+function parseErrorDetail(body) {
+  const d = body && body.detail;
+  if (d && typeof d === "object" && !Array.isArray(d)) return d;
+  if (typeof d === "string") {
+    if (d.startsWith("budget_exhausted"))
+      return { code: "budget_exhausted", message: d };
+    return { code: "", message: d };
+  }
+  return { code: "", message: "" };
+}
+
+function httpErrorMessage(status, body, fallback, retryAfterHeader) {
+  const { code, message, retry_after_sec: retrySec } = parseErrorDetail(body);
+  const retry = retryAfterHeader || (retrySec != null ? String(retrySec) : "");
+  if (code === "budget_exhausted") {
+    return message ||
+      "오늘의 질문 한도를 모두 사용했습니다. 내일 다시 시도해 주세요.";
+  }
+  if (code === "rate_limit") {
+    const hint = retry ? ` 약 ${retry}초 후 다시 시도해 주세요.` : " 잠시 후 다시 시도해 주세요.";
+    return (message || "요청이 너무 잦습니다.") + hint;
+  }
+  if (code === "llm_unavailable" || code === "auth_required") {
+    return message || fallback;
+  }
+  if (message) return message;
+  if (status === 429) return fallback;
+  return fallback;
+}
+
 function abstainMessage(reason) {
   if (reason === "empty_context" || reason === "low_score")
     return "업로드한 문서에서 근거를 찾지 못했습니다. (지어내지 않고 답변을 보류합니다)";
@@ -519,6 +790,12 @@ function abstainMessage(reason) {
     return "질의 컨텍스트가 비용 상한을 초과해 답변을 보류합니다. 질문을 더 구체적으로 줄여 보세요.";
   if (reason === "no_evidence_in_documents")
     return "문서에 근거가 없어 답변을 보류합니다.";
+  if (reason === "injection_blocked")
+    return "질의에 시스템 지시 우회·인젝션으로 보이는 내용이 있어 답변을 보류합니다.";
+  if (reason === "injection_canary_leak")
+    return "보안 검증에 실패하여 답변을 폐기했습니다. 질문을 바꿔 다시 시도해 주세요.";
+  if ((reason || "").startsWith("injection"))
+    return "보안 정책에 따라 답변을 보류합니다.";
   return "답변을 제공할 수 없습니다: " + (reason || "unknown");
 }
 

@@ -129,6 +129,74 @@ body {
 .upload-busy { color: var(--warn); font-size: 12px; margin-top: 8px; }
 
 .docs { flex: 1; overflow-y: auto; min-height: 0; }
+.auth-advanced {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.auth-advanced summary {
+  cursor: pointer;
+  margin-bottom: 8px;
+}
+.auth-sso-row { margin: 8px 0; gap: 8px; display: flex; flex-wrap: wrap; }
+.share-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.badge-scope {
+  font-size: 11px;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 0 4px;
+}
+.docs-title-spaced { margin-top: 18px; }
+.docs-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.docs-hint {
+  margin: 0 0 8px;
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+.btn-tiny { font-size: 12px; padding: 2px 8px; }
+.upload-target {
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: 13px;
+}
+.collection-item { margin-bottom: 4px; }
+.collection-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  cursor: pointer;
+  padding: 6px 0;
+  font-size: 13px;
+}
+.collection-docs { margin: 0 0 8px 8px; padding: 0; list-style: none; }
+.badge-lib {
+  font-size: 11px;
+  color: var(--ok);
+  border: 1px solid var(--ok);
+  border-radius: 4px;
+  padding: 0 4px;
+}
 .docs-title {
   font-size: 11px; color: var(--muted); text-transform: uppercase;
   letter-spacing: 0.4px; margin-bottom: 8px;

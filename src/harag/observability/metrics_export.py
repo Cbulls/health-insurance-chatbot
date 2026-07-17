@@ -10,10 +10,32 @@ _lock = threading.Lock()
 _collector = MetricsCollector()
 _egress_tokens = 0
 _stage_ms: dict[str, list[float]] = {}
+_injection_soft = 0
+_injection_hard = 0
+_injection_canary = 0
+_auth_login = 0
 
 
 def collector() -> MetricsCollector:
     return _collector
+
+
+def record_auth_login() -> None:
+    global _auth_login
+    with _lock:
+        _auth_login += 1
+
+
+def record_injection(*, soft: bool = False, hard: bool = False,
+                     canary_leak: bool = False) -> None:
+    global _injection_soft, _injection_hard, _injection_canary
+    with _lock:
+        if soft:
+            _injection_soft += 1
+        if hard:
+            _injection_hard += 1
+        if canary_leak:
+            _injection_canary += 1
 
 
 def record_query(abstained: bool, top_score: float | None = None,
@@ -39,6 +61,10 @@ def prometheus_text() -> str:
         p50 = _collector.score_p50()
         egress = _egress_tokens
         stages_snap = {k: list(v) for k, v in _stage_ms.items()}
+        inj_soft = _injection_soft
+        inj_hard = _injection_hard
+        inj_canary = _injection_canary
+        auth_login = _auth_login
 
     lines = [
         "# HELP harag_queries_total Total queries",
@@ -56,6 +82,18 @@ def prometheus_text() -> str:
         "# HELP harag_llm_egress_tokens_total Estimated LLM egress tokens",
         "# TYPE harag_llm_egress_tokens_total counter",
         f"harag_llm_egress_tokens_total {egress}",
+        "# HELP harag_injection_soft_total Soft injection detections",
+        "# TYPE harag_injection_soft_total counter",
+        f"harag_injection_soft_total {inj_soft}",
+        "# HELP harag_auth_login_total SSO/mock login completions",
+        "# TYPE harag_auth_login_total counter",
+        f"harag_auth_login_total {auth_login}",
+        "# HELP harag_injection_hard_total Hard injection blocks",
+        "# TYPE harag_injection_hard_total counter",
+        f"harag_injection_hard_total {inj_hard}",
+        "# HELP harag_injection_canary_leak_total Canary leak detections",
+        "# TYPE harag_injection_canary_leak_total counter",
+        f"harag_injection_canary_leak_total {inj_canary}",
     ]
     for name, vals in stages_snap.items():
         if not vals:
@@ -71,7 +109,12 @@ def prometheus_text() -> str:
 
 def reset_for_tests() -> None:
     global _collector, _egress_tokens, _stage_ms
+    global _injection_soft, _injection_hard, _injection_canary, _auth_login
     with _lock:
         _collector = MetricsCollector()
         _egress_tokens = 0
         _stage_ms = {}
+        _injection_soft = 0
+        _injection_hard = 0
+        _injection_canary = 0
+        _auth_login = 0

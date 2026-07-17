@@ -100,10 +100,12 @@
 | **코드 다음 타석** | 고도화 Phase 잔여(실문서 골드셋 라벨링·상용 OCR·K8s 실배포) |
 
 포맷 정책: [`docs/adr/ADR-HWP5.md`](docs/adr/ADR-HWP5.md), 창구: [`docs/COUNTER_UX.md`](docs/COUNTER_UX.md).  
+창구 제품 백로그(JTBD·P0–P2): [`docs/COUNTER_PRODUCT_BACKLOG.md`](docs/COUNTER_PRODUCT_BACKLOG.md).  
 고도화: [`docs/SYSTEM_ADVANCEMENT.md`](docs/SYSTEM_ADVANCEMENT.md).  
 게이트: `PYTHONPATH=src python -m harag.eval.run_quality_gate` · `python scripts/poc_format_gate.py <files…>`
 
 다음 운영 후보:
 
+- **창구 스프린트 A** — SSO · 공유 문서함 · 한도/장애 메시지 분리 ([`COUNTER_PRODUCT_BACKLOG.md`](docs/COUNTER_PRODUCT_BACKLOG.md) §5)
 - **실문서 골드셋 라벨링** — 창구 FAQ 상위 30질의로 v1 확장
 - **Postgres + MinIO 운영 프로파일** — `docker compose --profile ops up`

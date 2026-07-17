@@ -40,9 +40,32 @@ class DocumentStatus(BaseModel):
     filename: str
     n_chunks: int = 0
     error: Optional[str] = None
+    scope: str = "personal"          # personal | shared | library
+    uploaded_by: str = ""
+    department: str = ""
+    collection_id: str = ""
 
 
 class DeleteResponse(BaseModel):
     document_id: str
     status: str = "deleted"
     trace_id: str = ""
+
+
+class CollectionCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=256)
+    description: str = Field(default="", max_length=1024)
+    slug: Optional[str] = Field(default=None, max_length=128)
+
+
+class CollectionOut(BaseModel):
+    id: str
+    slug: str
+    title: str
+    description: str = ""
+    created_by: str = ""
+    n_documents: int = 0
+
+
+class CollectionDetail(CollectionOut):
+    documents: list[DocumentStatus] = Field(default_factory=list)

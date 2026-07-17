@@ -16,6 +16,23 @@
 
 운영 시 `AUTH_ALLOW_DEMO_OWNER=false`.
 
+## OIDC SSO redirect 등록
+
+창구 **기관 계정으로 로그인**은 authorization code 흐름을 씁니다.
+
+| 변수 | 예 |
+|------|-----|
+| `AUTH_OIDC_AUTHORIZE_URL` | IdP authorize endpoint |
+| `AUTH_OIDC_TOKEN_URL` | IdP token endpoint |
+| `AUTH_OIDC_CLIENT_ID` / `CLIENT_SECRET` | 앱 등록 값 |
+| `AUTH_OIDC_REDIRECT_URI` | `https://<서비스호스트>/v1/auth/callback` |
+| `AUTH_OIDC_JWKS_URL` | 액세스/ID 토큰 검증용 JWKS (또는 `AUTH_JWT_SECRET` HS256) |
+
+IdP 콘솔에 **Redirect URI**를 위 `AUTH_OIDC_REDIRECT_URI`와 동일하게 등록합니다.  
+파일럿만: `AUTH_OIDC_MOCK=true` + `AUTH_JWT_SECRET` → `/v1/auth/login`이 모의 JWT를 발급(실 IdP 불필요).
+
+역할 클레임: JWT `roles`에 `admin` 또는 `doc_admin` → 공용 규정 등록·삭제. `dept`/`departments` → 부서 공유 범위.
+
 ## Compose 프로파일
 
 ```bash

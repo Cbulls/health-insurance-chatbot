@@ -223,7 +223,8 @@ HWP 표 미복원 시에도 검색은 가능하게 `ready` + `hwp5_table_limited
 - JWT 붙여넣기 / 데모 세션  
 - 모바일 사이드바  
 
-사용법: [docs/COUNTER_UX.md](docs/COUNTER_UX.md).
+사용법: [docs/COUNTER_UX.md](docs/COUNTER_UX.md).  
+제품 백로그: [docs/COUNTER_PRODUCT_BACKLOG.md](docs/COUNTER_PRODUCT_BACKLOG.md).
 
 ---
 
@@ -586,6 +587,7 @@ pytest -q
 | [앞으로 해야 할 것들/PRODUCTION_ROADMAP.md](앞으로%20해야%20할%20것들/PRODUCTION_ROADMAP.md) | 서비스화 로드맵 |
 | [docs/REDIS_DESIGN.md](docs/REDIS_DESIGN.md) | Streams·키·재시도 |
 | [docs/COUNTER_UX.md](docs/COUNTER_UX.md) | 창구 사용·포맷 정책 |
+| [docs/COUNTER_PRODUCT_BACKLOG.md](docs/COUNTER_PRODUCT_BACKLOG.md) | 창구 JTBD·P0–P2·스프린트 티켓 |
 | [docs/adr/ADR-HWP5.md](docs/adr/ADR-HWP5.md) | HWP5 결정 기록 |
 | [docs/GEMINI_COST_STRATEGY.md](docs/GEMINI_COST_STRATEGY.md) | Gemini 쿼터·비용 |
 | [docs/ACCURACY_REDIS_WORKER.md](docs/ACCURACY_REDIS_WORKER.md) | 정확도+워커 구현 메모 |

@@ -17,9 +17,10 @@ import threading
 import time
 from collections import OrderedDict
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends
 
 from harag.api.auth import require_auth
+from harag.api.error_codes import rate_limit_error
 from harag.config.settings import get_settings
 from harag.contracts.boundaries import AuthContext
 
@@ -80,9 +81,5 @@ async def enforce_rate_limit(
         return auth
     limiter = _redis_limiter if _redis_limiter is not None else _get_limiter(qpm)
     if not limiter.allow(auth.user_id):
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="요청이 너무 잦습니다. 잠시 후 다시 시도해 주세요.",
-            headers={"Retry-After": "30"},
-        )
+        raise rate_limit_error(retry_after=30)
     return auth

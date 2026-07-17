@@ -176,6 +176,15 @@ class Settings:
     # ── 고도화(기본값 있음 — 테스트 Settings(**base) 호환) ──
     auth_oidc_jwks_url: str = ""
     auth_allow_demo_owner: bool = True
+    # SSO UX (authorization code)
+    auth_oidc_client_id: str = ""
+    auth_oidc_client_secret: str = ""
+    auth_oidc_authorize_url: str = ""
+    auth_oidc_token_url: str = ""
+    auth_oidc_redirect_uri: str = ""
+    auth_oidc_scopes: str = "openid profile"
+    auth_oidc_mock: bool = False
+    auth_frontend_redirect: str = "/"
     pii_mask_enabled: bool = True
     daily_question_budget: int = 0
     daily_token_budget: int = 0
@@ -185,6 +194,22 @@ class Settings:
     object_store_bucket: str = "harag-originals"
     object_store_region: str = "us-east-1"
     ocr_scan_ratio_threshold: float = 0.15
+
+    # ── SEC-02 v2 인젝션 방어 ──
+    injection_defense_enabled: bool = True
+    injection_datamark_enabled: bool = True
+    injection_hard_refuse_score: int = 2
+    injection_ingest_action: str = "tag"  # tag | quarantine
+    injection_scan_query: bool = True
+    injection_canary_enabled: bool = True
+
+    # ── 스프린트 Q: 컨텍스트·리랭크·임베딩 캐시 ──
+    context_expand: bool = True
+    context_max_tokens: int = 3500
+    rerank_max_candidates: int = 12
+    rerank_max_candidates_under_load: int = 8
+    query_embed_cache_size: int = 256
+    query_embed_cache_ttl_s: float = 300.0
 
     @property
     def qdrant_url_or_none(self) -> str | None:
@@ -265,6 +290,15 @@ def get_settings() -> Settings:
         auth_jwt_issuer=_get("AUTH_JWT_ISSUER", ""),
         auth_oidc_jwks_url=_get("AUTH_OIDC_JWKS_URL", ""),
         auth_allow_demo_owner=_get_bool("AUTH_ALLOW_DEMO_OWNER", True),
+        auth_oidc_client_id=_get("AUTH_OIDC_CLIENT_ID", ""),
+        auth_oidc_client_secret=_get("AUTH_OIDC_CLIENT_SECRET", ""),
+        auth_oidc_authorize_url=_get("AUTH_OIDC_AUTHORIZE_URL", ""),
+        auth_oidc_token_url=_get("AUTH_OIDC_TOKEN_URL", ""),
+        auth_oidc_redirect_uri=_get("AUTH_OIDC_REDIRECT_URI", ""),
+        auth_oidc_scopes=_get("AUTH_OIDC_SCOPES", "openid profile")
+                         or "openid profile",
+        auth_oidc_mock=_get_bool("AUTH_OIDC_MOCK", False),
+        auth_frontend_redirect=_get("AUTH_FRONTEND_REDIRECT", "/") or "/",
         database_url=_get("DATABASE_URL", "sqlite:///./data/harag.db")
                        or "sqlite:///./data/harag.db",
         redis_url=_get("REDIS_URL", ""),
@@ -287,6 +321,19 @@ def get_settings() -> Settings:
         object_store_region=_get("OBJECT_STORE_REGION", "us-east-1")
                             or "us-east-1",
         ocr_scan_ratio_threshold=_get_float("OCR_SCAN_RATIO_THRESHOLD", 0.15),
+        injection_defense_enabled=_get_bool("INJECTION_DEFENSE_ENABLED", True),
+        injection_datamark_enabled=_get_bool("INJECTION_DATAMARK_ENABLED", True),
+        injection_hard_refuse_score=_get_int("INJECTION_HARD_REFUSE_SCORE", 2),
+        injection_ingest_action=_get("INJECTION_INGEST_ACTION", "tag") or "tag",
+        injection_scan_query=_get_bool("INJECTION_SCAN_QUERY", True),
+        injection_canary_enabled=_get_bool("INJECTION_CANARY_ENABLED", True),
+        context_expand=_get_bool("CONTEXT_EXPAND", True),
+        context_max_tokens=_get_int("CONTEXT_MAX_TOKENS", 3500),
+        rerank_max_candidates=_get_int("RERANK_MAX_CANDIDATES", 12),
+        rerank_max_candidates_under_load=_get_int(
+            "RERANK_MAX_CANDIDATES_UNDER_LOAD", 8),
+        query_embed_cache_size=_get_int("QUERY_EMBED_CACHE_SIZE", 256),
+        query_embed_cache_ttl_s=_get_float("QUERY_EMBED_CACHE_TTL_S", 300.0),
     )
 
 

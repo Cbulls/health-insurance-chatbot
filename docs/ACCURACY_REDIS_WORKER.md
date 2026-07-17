@@ -3,6 +3,8 @@
 이 문서는 **PDF 기반 답변 정확도 향상**과 **Redis 캐시·인덱싱 워커**를 어떻게 구현했는지 정리한다.  
 Kafka·MSA(Spring Boot 서비스 분리)·수식 LaTeX·VLM(차트 OCR)은 범위에서 제외했다.
 
+후속(검색·생성 경로의 컨텍스트 확장·인용 강제·지연 절감)은 [`SPRINT_Q_ACCURACY_PERF.md`](SPRINT_Q_ACCURACY_PERF.md)를 본다.
+
 ---
 
 ## 1. 목표

@@ -15,6 +15,7 @@ from functools import lru_cache
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from harag.api.acl_helpers import with_library_access
 from harag.api.auth_jwt import AuthError, JwtIdentityProvider
 from harag.config.settings import get_settings
 from harag.contracts.boundaries import AuthContext
@@ -64,10 +65,10 @@ def _auth_from_provider(provider, creds: HTTPAuthorizationCredentials | None
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
                             detail="token missing subject",
                             headers={"WWW-Authenticate": "Bearer"})
-    return AuthContext(
+    return with_library_access(AuthContext(
         user_id=ctx.user_id,
         acl_tags=frozenset(ctx.acl_tags) | {_owner_tag(ctx.user_id)},
-    )
+    ))
 
 
 async def require_auth(
@@ -91,7 +92,8 @@ async def require_auth(
         owner = creds.credentials
     owner = (owner or "anonymous").strip()
     owner = _SAFE.sub("", owner)[:64] or "anonymous"
-    return AuthContext(user_id=owner, acl_tags=frozenset({_owner_tag(owner)}))
+    return with_library_access(AuthContext(
+        user_id=owner, acl_tags=frozenset({_owner_tag(owner)})))
 
 
 def clear_auth_cache() -> None:

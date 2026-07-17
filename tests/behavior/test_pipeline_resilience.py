@@ -98,11 +98,12 @@ async def test_PR02_cost_limit_becomes_abstain():
 
 async def test_PR03_stream_tokens_arrive_incrementally():
     """스트리밍 LLM이면 토큰이 그대로 token 이벤트로 흐른다."""
-    p = make_pipeline(StreamingLLM(["안녕", "하세요"]))
+    # 인용 마커 포함 — OutputGuard가 비기권 답에 인용 필수(A6)
+    p = make_pipeline(StreamingLLM(["안녕", "하세요 [문서 1]."]))
     events = [e async for e in p.answer_stream("질문", AUTH, None)]
     kinds = [e.kind for e in events]
     assert kinds == ["token", "token", "citations", "done"]
-    assert [e.data for e in events[:2]] == ["안녕", "하세요"]
+    assert [e.data for e in events[:2]] == ["안녕", "하세요 [문서 1]."]
 
 
 async def test_PR04_stream_failure_before_first_token_abstains():
@@ -134,11 +135,12 @@ async def test_PR07_nonstreaming_llm_falls_back_to_chunked_stream():
     """스트리밍 미지원 LLM은 완성 후 조각 전송으로 폴백(기존 동작 유지)."""
     class PlainLLM:
         def complete(self, query, context_texts, context_ids):
-            return "가" * 30, []
+            body = ("가" * 30) + " [문서 1]."
+            return body, [context_ids[0]]
 
     p = make_pipeline(PlainLLM())
     events = [e async for e in p.answer_stream("질문", AUTH, None)]
     kinds = [e.kind for e in events]
     assert kinds[-2:] == ["citations", "done"]
     assert all(k == "token" for k in kinds[:-2])
-    assert "".join(e.data for e in events[:-2]) == "가" * 30
+    assert "".join(e.data for e in events[:-2]) == ("가" * 30) + " [문서 1]."

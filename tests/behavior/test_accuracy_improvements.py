@@ -154,14 +154,17 @@ def test_extract_cited_ids_no_markers():
 
 # ── system/user 역할 분리 ──
 def test_build_safe_messages_separates_roles_and_numbers_docs():
+    from harag.security.injection import InjectionPolicy
     system, user = build_safe_messages(
         system_instruction="문서에만 근거해 답하라.",
         query="치과 한도는?",
-        context_texts=["첫 문서", "둘째 문서"])
+        context_texts=["첫 문서", "둘째 문서"],
+        policy=InjectionPolicy(datamark_enabled=False, canary_enabled=False))
     assert "문서에만 근거해" in system
     assert "[문서 1] 첫 문서" in user and "[문서 2] 둘째 문서" in user
     assert "치과 한도는?" in user
     assert "첫 문서" not in system  # 문서 본문은 system에 넣지 않는다
+    assert "HARAG_CTX_OPEN_" in user
 
 
 # ── 전송 계층: system 역할 + 마커 → citations ──

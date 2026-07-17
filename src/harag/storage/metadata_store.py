@@ -6,6 +6,7 @@ SQLAlchemy 2.0 ORM. 기본 DSN은 sqlite 파일, DATABASE_URL이 있으면 Postg
 
 테이블:
   documents       문서 등록부(owner 스코프, 상태·청크 수)
+  collections     사내 지식 라이브러리 컬렉션
   doc_versions    버전 이력
   audit_logs      감사 로그
 
@@ -13,11 +14,13 @@ PK는 (uploaded_by, document_id) — MVP owner 격리와 일치.
 """
 from __future__ import annotations
 
+import re
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from sqlalchemy import (
-    create_engine, String, Integer, Float, DateTime, Text, select,
+    create_engine, String, Integer, Float, DateTime, Text, select, func,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, Session, sessionmaker
 
@@ -26,12 +29,25 @@ class Base(DeclarativeBase):
     pass
 
 
+class Collection(Base):
+    __tablename__ = "collections"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    slug: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    title: Mapped[str] = mapped_column(String(256))
+    description: Mapped[str] = mapped_column(String(1024), default="")
+    created_by: Mapped[str] = mapped_column(String(128), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+
+
 class Document(Base):
     __tablename__ = "documents"
     uploaded_by: Mapped[str] = mapped_column(String(128), primary_key=True)
     document_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     filename: Mapped[str] = mapped_column(String(512))
     department: Mapped[str] = mapped_column(String(128), index=True, default="")
+    # personal | shared | library
+    scope: Mapped[str] = mapped_column(String(32), default="personal")
+    collection_id: Mapped[str] = mapped_column(String(64), index=True, default="")
     status: Mapped[str] = mapped_column(String(32), default="registered")
     active_version: Mapped[int] = mapped_column(Integer, default=0)
     n_chunks: Mapped[int] = mapped_column(Integer, default=0)
@@ -69,14 +85,42 @@ class DocumentRecord:
     status: str
     n_chunks: int = 0
     department: str = ""
+    scope: str = "personal"
+    collection_id: str = ""
     active_version: int = 0
     status_reason: str = ""
     object_key: str = ""
     updated_at: datetime | None = None
 
 
+@dataclass(frozen=True)
+class CollectionRecord:
+    id: str
+    slug: str
+    title: str
+    description: str = ""
+    created_by: str = ""
+    created_at: datetime | None = None
+    n_documents: int = 0
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _slugify(title: str) -> str:
+    raw = (title or "").strip().lower()
+    raw = re.sub(r"\s+", "-", raw)
+    raw = re.sub(r"[^\w\-가-힣]", "", raw, flags=re.UNICODE)
+    return (raw[:80] or uuid.uuid4().hex[:12])
+
+
+def _infer_scope(doc: Document) -> str:
+    raw = (getattr(doc, "scope", None) or "").strip()
+    if raw in ("personal", "shared", "library"):
+        return raw
+    # 레거시: department가 있으면 공유로 간주
+    return "shared" if (doc.department or "").strip() else "personal"
 
 
 def _to_record(doc: Document) -> DocumentRecord:
@@ -87,10 +131,24 @@ def _to_record(doc: Document) -> DocumentRecord:
         status=doc.status,
         n_chunks=int(doc.n_chunks or 0),
         department=doc.department or "",
+        scope=_infer_scope(doc),
+        collection_id=getattr(doc, "collection_id", None) or "",
         active_version=int(doc.active_version or 0),
         status_reason=doc.status_reason or "",
         object_key=getattr(doc, "object_key", None) or "",
         updated_at=doc.updated_at,
+    )
+
+
+def _to_collection(row: Collection, n_documents: int = 0) -> CollectionRecord:
+    return CollectionRecord(
+        id=row.id,
+        slug=row.slug,
+        title=row.title,
+        description=row.description or "",
+        created_by=row.created_by or "",
+        created_at=row.created_at,
+        n_documents=n_documents,
     )
 
 
@@ -117,6 +175,20 @@ class MetadataStore:
                 conn.exec_driver_sql(
                     "ALTER TABLE documents ADD COLUMN object_key VARCHAR(512) DEFAULT ''"
                 )
+            if "scope" not in cols:
+                conn.exec_driver_sql(
+                    "ALTER TABLE documents ADD COLUMN scope VARCHAR(32) DEFAULT 'personal'"
+                )
+                # 기존 부서 태깅 문서는 공유 선반으로 승격
+                conn.exec_driver_sql(
+                    "UPDATE documents SET scope='shared' "
+                    "WHERE department IS NOT NULL AND TRIM(department) != ''"
+                )
+            if "collection_id" not in cols:
+                conn.exec_driver_sql(
+                    "ALTER TABLE documents ADD COLUMN collection_id "
+                    "VARCHAR(64) DEFAULT ''"
+                )
 
     def _session(self) -> Session:
         return self._Session()
@@ -128,8 +200,20 @@ class MetadataStore:
     def register_for_owner(
         self, document_id: str, filename: str, owner: str,
         department: str = "",
+        scope: str = "personal",
+        collection_id: str = "",
     ) -> str:
         """등록. ready/processing이면 'duplicate', 신규·failed 재시도면 'accepted'."""
+        scope_n = scope if scope in ("personal", "shared", "library") else "personal"
+        if scope_n == "shared":
+            dept = department or ""
+            coll = ""
+        elif scope_n == "library":
+            dept = ""
+            coll = collection_id or ""
+        else:
+            dept = ""
+            coll = ""
         with self._session() as s:
             doc = self._get(s, document_id, owner)
             if doc is not None:
@@ -140,8 +224,9 @@ class MetadataStore:
                 doc.status = "processing"
                 doc.status_reason = ""
                 doc.n_chunks = 0
-                if department:
-                    doc.department = department
+                doc.department = dept
+                doc.scope = scope_n
+                doc.collection_id = coll
                 doc.updated_at = _now()
                 s.commit()
             else:
@@ -149,7 +234,9 @@ class MetadataStore:
                     uploaded_by=owner,
                     document_id=document_id,
                     filename=filename,
-                    department=department or "",
+                    department=dept,
+                    scope=scope_n,
+                    collection_id=coll,
                     status="processing",
                     active_version=0,
                     n_chunks=0,
@@ -160,7 +247,8 @@ class MetadataStore:
                 s.commit()
         self.log_audit(
             event="upload", user_id=owner,
-            detail=f"register {document_id} {filename}",
+            detail=(f"register {document_id} {filename} scope={scope_n}"
+                    f" collection={coll}"),
             trace_id=document_id,
         )
         return "accepted"
@@ -294,28 +382,166 @@ class MetadataStore:
 
     def list_for_acl(self, owner: str, dept_tags: list[str] | None = None
                      ) -> list[DocumentRecord]:
-        """본인 문서 + (선택) 동일 부서 문서."""
+        """본인 문서 + 동일 부서 shared + 전사 지식 라이브러리."""
         with self._session() as s:
             rows = list(s.scalars(
                 select(Document).where(Document.uploaded_by == owner)
                 .order_by(Document.updated_at.desc())
             ))
+            seen = {(r.uploaded_by, r.document_id) for r in rows}
             depts = []
             for t in dept_tags or []:
                 if t.startswith("dept:"):
                     depts.append(t.split(":", 1)[1])
             if depts:
-                extra = list(s.scalars(
+                candidates = list(s.scalars(
                     select(Document).where(Document.department.in_(depts))
                     .order_by(Document.updated_at.desc())
                 ))
-                seen = {(r.uploaded_by, r.document_id) for r in rows}
-                for d in extra:
+                for d in candidates:
+                    if _infer_scope(d) != "shared":
+                        continue
                     key = (d.uploaded_by, d.document_id)
                     if key not in seen:
                         rows.append(d)
                         seen.add(key)
+            # 사내 지식 라이브러리 — 전원 열람
+            lib_docs = list(s.scalars(
+                select(Document).where(Document.scope == "library")
+                .order_by(Document.updated_at.desc())
+            ))
+            for d in lib_docs:
+                key = (d.uploaded_by, d.document_id)
+                if key not in seen:
+                    rows.append(d)
+                    seen.add(key)
             return [_to_record(d) for d in rows]
+
+    def list_library_documents(
+        self, collection_id: str | None = None,
+    ) -> list[DocumentRecord]:
+        with self._session() as s:
+            stmt = select(Document).where(Document.scope == "library")
+            if collection_id:
+                stmt = stmt.where(Document.collection_id == collection_id)
+            stmt = stmt.order_by(Document.updated_at.desc())
+            return [_to_record(d) for d in s.scalars(stmt)]
+
+    def find_accessible(
+        self, document_id: str, owner: str, dept_tags: list[str] | None = None,
+    ) -> DocumentRecord | None:
+        """본인·공유·라이브러리 문서."""
+        own = self.get_for_owner(document_id, owner)
+        if own is not None:
+            return own
+        for rec in self.list_for_acl(owner, dept_tags):
+            if rec.document_id == document_id:
+                return rec
+        return None
+
+    # ── 사내 지식 라이브러리 컬렉션 ──
+    def create_collection(
+        self, title: str, created_by: str, description: str = "",
+        slug: str | None = None,
+    ) -> CollectionRecord:
+        cid = uuid.uuid4().hex[:16]
+        base = _slugify(slug or title)
+        candidate = base
+        n = 0
+        with self._session() as s:
+            while s.scalar(
+                select(Collection).where(Collection.slug == candidate)
+            ) is not None:
+                n += 1
+                candidate = f"{base}-{n}"
+            row = Collection(
+                id=cid,
+                slug=candidate,
+                title=(title or candidate)[:256],
+                description=(description or "")[:1024],
+                created_by=created_by or "",
+                created_at=_now(),
+            )
+            s.add(row)
+            s.commit()
+            rec = _to_collection(row, 0)
+        self.log_audit(
+            event="collection_create", user_id=created_by,
+            detail=f"collection {cid} {candidate}",
+            trace_id=cid,
+        )
+        return rec
+
+    def list_collections(self) -> list[CollectionRecord]:
+        with self._session() as s:
+            rows = list(s.scalars(
+                select(Collection).order_by(Collection.created_at.desc())
+            ))
+            out: list[CollectionRecord] = []
+            for row in rows:
+                n = s.scalar(
+                    select(func.count()).select_from(Document).where(
+                        Document.collection_id == row.id,
+                        Document.scope == "library",
+                    )
+                ) or 0
+                out.append(_to_collection(row, int(n)))
+            return out
+
+    def get_collection(self, collection_id: str) -> CollectionRecord | None:
+        with self._session() as s:
+            row = s.get(Collection, collection_id)
+            if row is None:
+                return None
+            n = s.scalar(
+                select(func.count()).select_from(Document).where(
+                    Document.collection_id == collection_id,
+                    Document.scope == "library",
+                )
+            ) or 0
+            return _to_collection(row, int(n))
+
+    def get_collection_by_slug(self, slug: str) -> CollectionRecord | None:
+        with self._session() as s:
+            row = s.scalar(
+                select(Collection).where(Collection.slug == slug)
+            )
+            if row is None:
+                return None
+            return self.get_collection(row.id)
+
+    def delete_collection(self, collection_id: str) -> str:
+        """성공 시 'ok'. 문서가 있으면 'not_empty'. 없으면 'not_found'."""
+        with self._session() as s:
+            row = s.get(Collection, collection_id)
+            if row is None:
+                return "not_found"
+            n = s.scalar(
+                select(func.count()).select_from(Document).where(
+                    Document.collection_id == collection_id,
+                    Document.scope == "library",
+                )
+            ) or 0
+            if int(n) > 0:
+                return "not_empty"
+            s.delete(row)
+            s.commit()
+        return "ok"
+
+    def delete_document_row(self, document_id: str, uploaded_by: str) -> bool:
+        """PK(uploaded_by, document_id)로 삭제(관리자 공유 삭제용)."""
+        with self._session() as s:
+            doc = self._get(s, document_id, uploaded_by)
+            if doc is None:
+                return False
+            s.delete(doc)
+            s.commit()
+        self.log_audit(
+            event="delete", user_id=uploaded_by,
+            detail=f"delete {document_id}",
+            trace_id=document_id,
+        )
+        return True
 
     def list_documents(self, department: str | None = None,
                        uploaded_by: str | None = None) -> list[DocumentRecord]:

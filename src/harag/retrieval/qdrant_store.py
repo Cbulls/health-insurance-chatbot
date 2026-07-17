@@ -48,6 +48,7 @@ _PAYLOAD_SCHEMA_V2 = "v2"
 _PAYLOAD_INCLUDE = [
     "schema", "chunk_id", "document_id", "acl_tags", "text",
     "citation_label", "source_document", "content_hash", "struct_path",
+    "parent_chunk_id",
     "page_ref", "chunk_type", "source_block_ids", "security_level",
     "embedding_model_id", "parsing_version", "chunking_version",
     "created_at", "meta",
@@ -81,6 +82,7 @@ def build_payload_v2(ec: EmbeddedChunk) -> dict[str, Any]:
         "source_document": meta.source_document,
         "content_hash": meta.content_hash,
         "struct_path": meta.struct_path,
+        "parent_chunk_id": meta.parent_chunk_id or "",
         "page_ref": meta.page_ref,
         "chunk_type": meta.chunk_type.value if isinstance(
             meta.chunk_type, ChunkType) else str(meta.chunk_type),
@@ -125,9 +127,13 @@ def chunk_from_payload(pl: dict[str, Any]) -> Chunk | None:
     else:
         created = datetime.now(timezone.utc)
 
+    parent = pl.get("parent_chunk_id") or None
+    if isinstance(parent, str) and not parent.strip():
+        parent = None
     meta = ChunkMetadata(
         chunk_id=str(chunk_id),
         document_id=str(document_id),
+        parent_chunk_id=parent,
         source_block_ids=list(block_ids),
         struct_path=str(pl.get("struct_path") or ""),
         chunk_type=ctype,

@@ -10,9 +10,10 @@ import threading
 import time
 from datetime import datetime, timezone
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends
 
 from harag.api.auth import require_auth
+from harag.api.error_codes import budget_exhausted_error
 from harag.config.settings import get_settings
 from harag.contracts.boundaries import AuthContext
 
@@ -101,17 +102,9 @@ def check_budget(owner: str) -> None:
     q_limit = s.daily_question_budget
     t_limit = s.daily_token_budget
     if q_limit > 0 and questions_used(owner) >= q_limit:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="budget_exhausted (일일 질문 예산 초과)",
-            headers={"Retry-After": "3600"},
-        )
+        raise budget_exhausted_error(kind="questions", retry_after=3600)
     if t_limit > 0 and tokens_used(owner) >= t_limit:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="budget_exhausted (일일 토큰 예산 초과)",
-            headers={"Retry-After": "3600"},
-        )
+        raise budget_exhausted_error(kind="tokens", retry_after=3600)
 
 
 async def enforce_daily_budget(

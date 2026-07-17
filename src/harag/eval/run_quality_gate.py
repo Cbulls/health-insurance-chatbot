@@ -38,6 +38,7 @@ def load_goldset(path: Path) -> list[GoldQuery]:
             gold_answer=q.get("gold_answer"),
             source_document_id=q.get("source_document_id", ""),
             stale=bool(q.get("stale", False)),
+            forbidden_claims=list(q.get("forbidden_claims") or []),
         ))
     return out
 
@@ -88,6 +89,7 @@ def run_gate(gold: list[GoldQuery], outputs: dict[str, SystemOutput],
             "n": v.n, "hit_k": v.hit_k, "mrr": v.mrr,
             "abstention_acc": v.abstention_acc,
             "citation_faithful": v.citation_faithful_rate,
+            "answer_acc": v.answer_acc,
         } for k, v in reports.items()},
         "extra": extra,
         "violations": violations,

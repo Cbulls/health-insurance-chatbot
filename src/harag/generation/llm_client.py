@@ -70,6 +70,11 @@ class ExternalLLMClient:
         self._base_backoff = base_backoff_sec
         self._system_instruction = (system_instruction
                                     or self.DEFAULT_SYSTEM_INSTRUCTION)
+        self._last_canary: str | None = None
+
+    @property
+    def last_canary(self) -> str | None:
+        return self._last_canary
 
     def _build_payload(self, query: str, context_texts: list[str],
                        context_ids: list[str]) -> dict:
@@ -81,16 +86,17 @@ class ExternalLLMClient:
             raise CostLimitError(
                 f"예상 비용 ${est_cost:.3f} > 상한 ${self._max_cost:.3f}")
 
-        # 프롬프트 인젝션 방어: 시스템 지시와 문서를 '역할'로 분리(SEC-02).
+        # SEC-02 v2: spotlighting + canary + random delimiter + role split
         from harag.security.injection import build_safe_messages
-        system, user = build_safe_messages(
+        bundle = build_safe_messages(
             system_instruction=self._system_instruction,
             query=query, context_texts=context_texts)
+        self._last_canary = bundle.canary
 
         return {
             "model": self._model,
-            "system": system,
-            "prompt": user,
+            "system": bundle.system,
+            "prompt": bundle.user,
             "context_ids": context_ids,
         }
 

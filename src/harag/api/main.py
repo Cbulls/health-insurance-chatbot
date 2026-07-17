@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from harag.api.middleware import TraceMiddleware, SafeErrorMiddleware
-from harag.api import routes_query, routes_ingest
+from harag.api import routes_query, routes_ingest, routes_auth, routes_collections
 from harag.config.settings import get_settings
 
 logging.basicConfig(level=logging.INFO)
@@ -110,6 +110,14 @@ def _build_and_inject() -> None:
     version_coord = DocumentVersionCoordinator(metadata)
 
     embedding_model = build_embedding_model(settings)
+    # P3: 질의 임베딩 LRU/TTL — 배치 인덱싱(len≠1)은 캐시 우회
+    if settings.query_embed_cache_size > 0:
+        from harag.embedding.query_cache import CachedEmbeddingModel
+        embedding_model = CachedEmbeddingModel(
+            embedding_model,
+            max_entries=settings.query_embed_cache_size,
+            ttl_sec=settings.query_embed_cache_ttl_s,
+        )
     # 적재(embedder)와 질의(store)가 반드시 같은 토크나이저를 공유해야
     # sparse 인덱스가 일치한다(kiwipiepy 설치 시 형태소, 아니면 어절 폴백).
     morph = build_morph()
@@ -160,6 +168,8 @@ def _build_and_inject() -> None:
             model=ce_model,
             top_n=min(settings.rerank_top_n, settings.top_k),
             min_score=rerank_min,
+            max_candidates=settings.rerank_max_candidates,
+            max_candidates_under_load=settings.rerank_max_candidates_under_load,
             retrieval_blend=blend,
         )
     elif settings.rerank_enabled:
@@ -177,6 +187,8 @@ def _build_and_inject() -> None:
             model=ce_model,
             top_n=top_n,
             min_score=rerank_min,
+            max_candidates=settings.rerank_max_candidates,
+            max_candidates_under_load=settings.rerank_max_candidates_under_load,
             retrieval_blend=blend,
         )
 
@@ -205,6 +217,8 @@ def _build_and_inject() -> None:
         top_k=settings.top_k,
         under_load_inflight=settings.rerank_under_load_inflight,
         context_dedupe=settings.context_dedupe,
+        context_expand=settings.context_expand,
+        context_max_tokens=settings.context_max_tokens,
         metadata=metadata,
     )
     ingest = InProcessIngest(
@@ -275,6 +289,8 @@ def create_app() -> FastAPI:
 
     app.include_router(routes_query.router)
     app.include_router(routes_ingest.router)
+    app.include_router(routes_auth.router)
+    app.include_router(routes_collections.router)
 
     @app.get("/health")
     async def health():

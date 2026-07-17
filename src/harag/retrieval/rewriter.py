@@ -6,23 +6,47 @@
 설계 원칙:
   - 재작성 LLM은 어댑터 뒤로. 실패 시 원본 질의 폴백(graceful degradation —
     재작성 실패는 검색이 빗나갈 뿐 위험하지 않다).
-  - 이력은 '질의'만 저장. 이전 답변·청크 내용은 저장하지 않는다(권한 안전:
-    이전 턴의 민감 내용이 재작성으로 현재 질의에 새지 않게).
+  - 지시어·짧은 후속문이 없으면 LLM 재작성을 건너뛴다(P1: 불필요 호출 절감).
+  - 이력은 '질의'만 저장. 이전 답변·청크 내용은 저장하지 않는다(권한 안전).
   - 권한은 이력에 캐시하지 않는다. 검색 시점에 매 턴 재평가(B-4).
   - conversation_id별 격리.
-
-저장소는 인터페이스로 — 로컬은 메모리, 운영은 Redis 등(TTL로 자동 만료).
 """
 from __future__ import annotations
 
+import re
 import threading
 from collections import OrderedDict
 from typing import Protocol
+
+# 지시어·대용 표현 — 있을 때만 LLM rewrite (없으면 원문 유지)
+_DEIXIS_RE = re.compile(
+    r"(그것|그건|그게|그거|저것|저건|이것|이건|이거|"
+    r"거기|여기|저쪽|상기|해당|"
+    r"그\s*(규정|조항|내용|금액|한도|기한)|"
+    r"앞(서|의)|위\s*(내용|규정)|"
+    r"그럼|그래서|그리고\s*그건)",
+    re.IGNORECASE,
+)
 
 
 class RewriteLLM(Protocol):
     """질의 + 이전 질의 이력 → 재작성된 독립 질의. 실제론 경량 LLM."""
     def rewrite(self, query: str, history: list[str]) -> str: ...
+
+
+def needs_rewrite(query: str, history: list[str]) -> bool:
+    """이력이 있고 지시어·초단문 후속이면 LLM 재작성 대상."""
+    if not history:
+        return False
+    q = (query or "").strip()
+    if not q:
+        return False
+    if _DEIXIS_RE.search(q):
+        return True
+    # 매우 짧은 후속("얼마야?", "기한은?") — 맥락 의존 가능성
+    if len(q) <= 10:
+        return True
+    return False
 
 
 class ConversationStore:
@@ -75,8 +99,8 @@ class QueryRewriter:
             return query
 
         history = self._store.get(conversation_id)
-        # 첫 턴(이력 없음)은 재작성 불필요
-        if not history:
+        # 첫 턴(이력 없음) 또는 지시어 없는 독립 질의 → LLM 스킵
+        if not needs_rewrite(query, history):
             return query
 
         # 재작성 시도 — 실패하면 원본 폴백(graceful degradation)

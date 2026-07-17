@@ -85,6 +85,24 @@ def test_RW06_only_queries_in_history_not_answers():
     assert history == ["출장비 한도?"]
 
 
+def test_RW07_skip_llm_when_no_deixis():
+    """이력이 있어도 지시어 없는 독립 질의는 LLM 재작성 스킵."""
+    store = ConversationStore()
+    calls = []
+
+    class CountingLLM:
+        def rewrite(self, query, history):
+            calls.append(query)
+            return "재작성됨"
+
+    rw = QueryRewriter(llm=CountingLLM(), store=store)
+    rw.record_turn("conv1", "출장비 한도가 얼마야?")
+    out = rw.rewrite_for_search(
+        "연차 휴가 일수는 며칠인가요?", conversation_id="conv1")
+    assert out == "연차 휴가 일수는 며칠인가요?"
+    assert calls == []
+
+
 if __name__ == "__main__":
     import sys
     sys.exit(pytest.main([__file__, "-v"]))

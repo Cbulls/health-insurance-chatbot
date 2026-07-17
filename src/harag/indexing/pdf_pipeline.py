@@ -107,6 +107,14 @@ class PdfIngestPipeline:
             if self._pii_masker is not None:
                 _mask_ir_pii(ir, self._pii_masker)
 
+            # SEC-02: 인제스트 시점 인젝션 스캔 (write-node)
+            inj_warning = self._scan_ingest_injection(ir, document_id, owner)
+            if inj_warning == "__quarantine__":
+                self._fail(
+                    document_id, owner, filename,
+                    "injection_quarantined (문서에 인젝션 패턴 — 격리)")
+                return
+
             tags = list(acl_tags) if acl_tags else [_owner_tag(owner)]
             if _owner_tag(owner) not in tags:
                 tags.append(_owner_tag(owner))
@@ -163,6 +171,10 @@ class PdfIngestPipeline:
             warn_code = getattr(self._parser, "last_warning", None)
             warn_msg = (_parse_warning_message(warn_code)
                         if warn_code else None)
+            if inj_warning and not warn_msg:
+                warn_msg = inj_warning
+            elif inj_warning and warn_msg:
+                warn_msg = f"{warn_msg}; {inj_warning}"[:256]
             self._metadata.mark_ready(
                 document_id, owner, n, warning=warn_msg, version=version)
             self._cache_set(document_id, owner, filename, "ready", n, warn_msg)
@@ -220,6 +232,56 @@ class PdfIngestPipeline:
         self.process(document_id, raw, name, owner,
                      acl_tags=acl_tags, department=department)
         return True
+
+    def _scan_ingest_injection(self, ir, document_id: str, owner: str
+                               ) -> str | None:
+        """None=clean, warning 문자열=tag, '__quarantine__'=격리 실패."""
+        try:
+            from harag.security.injection import (
+                InjectionScanner, policy_from_settings,
+            )
+            from harag.observability import metrics_export
+            pol = policy_from_settings()
+            if not pol.enabled:
+                return None
+            parts = []
+            for b in ir.blocks:
+                if getattr(b, "text", None):
+                    parts.append(b.text)
+                tc = getattr(b, "table_content", None)
+                if tc is not None:
+                    for cell in getattr(tc, "cells", []) or []:
+                        if getattr(cell, "text", None):
+                            parts.append(cell.text)
+            blob = "\n".join(parts)
+            risk = InjectionScanner(
+                hard_refuse_score=pol.hard_refuse_score).scan(blob)
+            if risk.level.value == "hard":
+                metrics_export.record_injection(hard=True)
+                try:
+                    self._metadata.log_audit(
+                        event="injection_ingest", user_id=owner,
+                        detail=f"hard score={risk.score} doc={document_id}",
+                        trace_id=document_id)
+                except Exception:  # noqa: BLE001
+                    pass
+                if pol.ingest_action == "quarantine":
+                    return "__quarantine__"
+                return ("injection_risk (고위험 인젝션 패턴 — "
+                        "검색 가능하나 주의)")
+            if risk.is_suspicious:
+                metrics_export.record_injection(soft=True)
+                try:
+                    self._metadata.log_audit(
+                        event="injection_ingest", user_id=owner,
+                        detail=f"soft score={risk.score} doc={document_id}",
+                        trace_id=document_id)
+                except Exception:  # noqa: BLE001
+                    pass
+                return "injection_risk (인젝션 패턴 감지 — 주의)"
+        except Exception:  # noqa: BLE001
+            logger.exception("ingest injection scan failed for %s", document_id)
+        return None
 
     def _fail(self, document_id: str, owner: str, filename: str,
               msg: str) -> None:

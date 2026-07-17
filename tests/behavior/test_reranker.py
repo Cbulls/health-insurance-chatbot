@@ -81,6 +81,24 @@ def test_RR04_graceful_degradation_caps_input():
     assert len(out) <= 3
 
 
+def test_RR05_always_caps_candidates():
+    """부하가 아니어도 후보 상한 적용(P4)."""
+    class CountingCE:
+        def __init__(self):
+            self.n_texts = 0
+
+        def score_pairs(self, query, texts):
+            self.n_texts = len(texts)
+            return [0.5] * len(texts)
+
+    ce = CountingCE()
+    r = CrossEncoderReranker(
+        model=ce, top_n=3, min_score=0.0, max_candidates=5)
+    candidates = [_sc(f"c{i}", f"출장비 {i}", 1.0 - i * 0.01) for i in range(20)]
+    r.rerank("출장비", candidates, under_load=False)
+    assert ce.n_texts == 5
+
+
 def test_RR_empty_input():
     """빈 후보 → 빈 결과(크래시 없음)."""
     assert _reranker().rerank("q", []) == []

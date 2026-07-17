@@ -20,6 +20,10 @@ from harag.storage.metadata_store import MetadataStore
 logger = logging.getLogger("harag.ingest")
 
 
+def _owner_tag(owner: str) -> str:
+    return f"owner:{owner}"
+
+
 @dataclass
 class DocRecord:
     document_id: str
@@ -28,10 +32,9 @@ class DocRecord:
     status: str = "processing"   # processing | ready | failed
     n_chunks: int = 0
     error: str | None = None
-
-
-def _owner_tag(owner: str) -> str:
-    return f"owner:{owner}"
+    scope: str = "personal"
+    department: str = ""
+    collection_id: str = ""
 
 
 def _from_meta(rec) -> DocRecord:
@@ -43,6 +46,9 @@ def _from_meta(rec) -> DocRecord:
         status=rec.status,
         n_chunks=rec.n_chunks,
         error=reason or None,
+        scope=getattr(rec, "scope", None) or "personal",
+        department=getattr(rec, "department", None) or "",
+        collection_id=getattr(rec, "collection_id", None) or "",
     )
 
 
@@ -130,10 +136,13 @@ class InProcessIngest:
             acl_tags=acl_tags, department=department)
 
     def register(self, document_id: str, filename: str, owner: str,
-                 department: str = "") -> str:
+                 department: str = "", scope: str = "personal",
+                 collection_id: str = "") -> str:
         with self._lock:
             result = self._metadata.register_for_owner(
-                document_id, filename, owner, department=department)
+                document_id, filename, owner,
+                department=department, scope=scope,
+                collection_id=collection_id)
         if result == "accepted" and self._cache is not None:
             self._cache.set(document_id, owner, {
                 "document_id": document_id, "filename": filename,
@@ -169,21 +178,27 @@ class InProcessIngest:
     def list_for_owner(self, owner: str) -> list[DocRecord]:
         return [_from_meta(r) for r in self._metadata.list_for_owner(owner)]
 
-    def delete(self, document_id: str, owner: str) -> str:
+    def delete(self, document_id: str, owner: str,
+               *, uploaded_by: str | None = None) -> str:
+        """uploaded_by가 있으면 해당 업로더 행을 삭제(공유 문서 관리자 삭제)."""
+        row_owner = uploaded_by or owner
         with self._lock:
-            rec = self._metadata.get_for_owner(document_id, owner)
+            rec = self._metadata.get_for_owner(document_id, row_owner)
             if rec is None:
                 return "not_found"
             if rec.status == "processing":
                 return "busy"
         deleter = getattr(self._pipeline._store, "delete_document", None)
         if callable(deleter):
-            deleter(document_id, [_owner_tag(owner)])
-        self._metadata.delete_for_owner(document_id, owner)
+            deleter(document_id, [_owner_tag(row_owner)])
+        if uploaded_by and uploaded_by != owner:
+            self._metadata.delete_document_row(document_id, uploaded_by)
+        else:
+            self._metadata.delete_for_owner(document_id, owner)
         if self._cache is not None:
-            self._cache.invalidate(document_id, owner)
+            self._cache.invalidate(document_id, row_owner)
         if self._queue is not None:
             self._queue.clear_inflight(document_id)
         logger.info("deleted document record %s for owner %s",
-                    document_id, owner)
+                    document_id, row_owner)
         return "deleted"

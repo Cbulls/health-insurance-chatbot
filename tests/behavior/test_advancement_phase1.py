@@ -35,7 +35,10 @@ def test_daily_budget_blocks(monkeypatch):
     from fastapi import HTTPException
     with pytest.raises(HTTPException) as ei:
         check_budget("u1")
-    assert "budget_exhausted" in str(ei.value.detail)
+    detail = ei.value.detail
+    assert isinstance(detail, dict)
+    assert detail["code"] == "budget_exhausted"
+    assert "질문 한도" in detail["message"]
     get_settings.cache_clear()
     monkeypatch.delenv("DAILY_QUESTION_BUDGET", raising=False)
     get_settings.cache_clear()

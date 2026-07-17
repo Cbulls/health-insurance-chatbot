@@ -263,7 +263,7 @@ flowchart TB
 | Auth/ACL | `auth.py`, `auth_jwt.py`, `auth_oidc.py`, ingest payload 태그 |
 | 품질 | `eval/goldsets/`, `.github/workflows/`, `run_quality_gate.py` |
 | Ops | `docker-compose.yml`, `.env.example`, `deploy/k8s/` |
-| 정책 문서 | ADR-HWP5, OCR_POLICY, GEMINI_COST_STRATEGY, COUNTER_UX, REMAINING_WORK, SECRETS_OPS |
+| 정책 문서 | ADR-HWP5, OCR_POLICY, GEMINI_COST_STRATEGY, COUNTER_UX, COUNTER_PRODUCT_BACKLOG, REMAINING_WORK, SECRETS_OPS |
 
 ---
 
@@ -331,12 +331,32 @@ docker compose --profile tei up -d
 
 ---
 
+## SEC-02 프롬프트 인젝션 방어 (v2)
+
+완벽 차단은 불가능하다(OWASP LLM01). 라이브 다층 완화:
+
+| 층 | 구현 |
+|----|------|
+| 확장 스캐너 soft/hard | `harag.security.injection` |
+| Spotlighting datamark + random delimiter | `build_safe_messages` |
+| Session canary + 출력 검사 | `OutputGuard`, 스트림 `revoke` |
+| 질의 hard refuse | `QueryPipeline` → `injection_blocked` |
+| 인제스트 스캔 | `PdfIngestPipeline` (`tag`/`quarantine`) |
+| rewrite/rerank 격리 | `build_sidechannel_messages` |
+| 메트릭 | `harag_injection_*` on `/metrics` |
+
+정책: [ADR-INJECTION-SEC02.md](adr/ADR-INJECTION-SEC02.md)
+
+---
+
 ## 관련 문서
 
 - [REMAINING_WORK.md](../REMAINING_WORK.md)
 - [ADR-HWP5.md](adr/ADR-HWP5.md)
+- [ADR-INJECTION-SEC02.md](adr/ADR-INJECTION-SEC02.md)
 - [OCR_POLICY.md](OCR_POLICY.md)
 - [COUNTER_UX.md](COUNTER_UX.md)
+- [COUNTER_PRODUCT_BACKLOG.md](COUNTER_PRODUCT_BACKLOG.md) — 창구 JTBD·P0–P2·스프린트 A 티켓
 - [GEMINI_COST_STRATEGY.md](GEMINI_COST_STRATEGY.md)
 - [SECRETS_OPS.md](SECRETS_OPS.md)
 - [REPO_HYGIENE.md](REPO_HYGIENE.md)

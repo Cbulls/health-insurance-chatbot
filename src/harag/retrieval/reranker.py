@@ -5,7 +5,6 @@
 cross-encoder는 질의-청크 쌍을 함께 보고 관련도를 매겨, dense/sparse의
 독립 인코딩보다 정밀하다. 대신 비싸므로 후보 수를 제한한다.
 
-cross-encoder 모델은 어댑터(CrossEncoder Protocol) 뒤로 — GPU·모델 의존.
 운영: HttpCrossEncoder(RERANKER_SERVER_URL) 또는 LexicalCrossEncoder 폴백.
 """
 from __future__ import annotations
@@ -22,12 +21,15 @@ class CrossEncoder(Protocol):
 
 class CrossEncoderReranker:
     def __init__(self, model: CrossEncoder, top_n: int = 5,
-                 min_score: float = 0.0, max_candidates_under_load: int = 20,
+                 min_score: float = 0.0,
+                 max_candidates: int = 12,
+                 max_candidates_under_load: int = 8,
                  retrieval_blend: float = 0.0):
         self._model = model
         self._top_n = top_n
         self._min_score = min_score
-        self._max_under_load = max_candidates_under_load
+        self._max_candidates = max(1, max_candidates)
+        self._max_under_load = max(1, max_candidates_under_load)
         # 0=cross-encoder 점수만, 1=retrieval 점수만. 어절 리랭커처럼 약한
         # 신호는 0.5~0.7로 dense 점수를 보존해 한/영 교차 질의에서 붕괴를 막는다.
         self._blend = max(0.0, min(1.0, retrieval_blend))
@@ -37,12 +39,11 @@ class CrossEncoderReranker:
         if not candidates:
             return []
 
-        # RR-04: 부하 시 입력 K 축소(graceful degradation).
-        # retrieval 점수 상위만 cross-encoder에 넘겨 모델 비용·지연을 줄인다.
+        # P4: 항상 후보 상한. 부하 시 더 축소(RR-04).
+        cap = self._max_under_load if under_load else self._max_candidates
         pool = candidates
-        if under_load and len(candidates) > self._max_under_load:
-            pool = sorted(candidates, key=lambda s: s.score, reverse=True)[
-                :self._max_under_load]
+        if len(candidates) > cap:
+            pool = sorted(candidates, key=lambda s: s.score, reverse=True)[:cap]
 
         # cross-encoder로 질의-청크 정밀 재채점(한 번의 배치 호출)
         scores = self._model.score_pairs(query, [s.chunk.text for s in pool])

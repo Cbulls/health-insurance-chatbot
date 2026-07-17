@@ -45,12 +45,21 @@ class LLMCrossEncoder:
     호출·파싱 실패 시 LexicalCrossEncoder 점수로 폴백한다(검색은 계속 동작).
     """
 
-    _MAX_CHARS_PER_DOC = 600  # 후보 절단 — 프롬프트 폭주 방지
+    _MAX_CHARS_PER_DOC = 600  # 일반 본문 절단 — 프롬프트 폭주 방지
+    _MAX_CHARS_TABLE = 1800   # 표(Markdown)는 열·행이 잘리면 순위가 빗나감
 
     def __init__(self, transport, model: str):
         self._transport = transport
         self._model = model
         self._fallback = LexicalCrossEncoder()
+
+    @classmethod
+    def _clip_doc(cls, text: str) -> str:
+        t = text or ""
+        # 마크다운 표(|…| + 줄바꿈)는 더 길게 유지
+        if "|" in t and "\n" in t:
+            return t[: cls._MAX_CHARS_TABLE]
+        return t[: cls._MAX_CHARS_PER_DOC]
 
     def score_pairs(self, query: str, texts: list[str]) -> list[float]:
         if not texts:
@@ -65,17 +74,38 @@ class LLMCrossEncoder:
         return self._fallback.score_pairs(query, texts)
 
     def _score_llm(self, query: str, texts: list[str]) -> list[float] | None:
-        docs = "\n".join(
-            f"[{i + 1}] {t[:self._MAX_CHARS_PER_DOC]}"
-            for i, t in enumerate(texts))
-        prompt = (
-            "너는 검색 결과 평가자다. 질의에 대한 각 문서의 관련도를 "
-            "0(무관)~10(직접 답변 근거) 정수로 평가하라.\n"
-            f"문서는 {len(texts)}개다. 설명 없이 길이 {len(texts)}의 "
-            "JSON 정수 배열만 출력한다. 예: [7, 0, 3]\n\n"
-            f"질의: {query}\n\n{docs}"
+        from harag.security.injection import (
+            InjectionScanner, policy_from_settings, build_sidechannel_messages,
+            spotlight_datamark,
         )
-        resp = self._transport.post({"model": self._model, "prompt": prompt})
+        pol = policy_from_settings()
+        scanner = InjectionScanner(hard_refuse_score=pol.hard_refuse_score)
+        clipped: list[str] = []
+        penalties: list[float] = []
+        for t in texts:
+            body = self._clip_doc(t)
+            risk = scanner.scan(body) if pol.enabled else None
+            if risk and risk.level.value == "hard":
+                penalties.append(0.0)  # 제외에 가깝게
+            elif risk and risk.is_suspicious:
+                penalties.append(0.35)
+            else:
+                penalties.append(1.0)
+            if pol.enabled and pol.datamark_enabled:
+                body = spotlight_datamark(body, pol.datamark_token)
+            clipped.append(body)
+
+        task = (
+            "너는 검색 결과 평가자다. 질의에 대한 각 UNTRUSTED 문서의 관련도를 "
+            "0(무관)~10(직접 답변 근거) 정수로 평가하라. "
+            f"문서는 {len(texts)}개다. 설명 없이 길이 {len(texts)}의 "
+            "JSON 정수 배열만 출력한다. 예: [7, 0, 3]"
+        )
+        parts = [f"질의: {query}"] + [
+            f"[{i + 1}] {c}" for i, c in enumerate(clipped)]
+        system, user = build_sidechannel_messages(task, parts, policy=pol)
+        resp = self._transport.post({
+            "model": self._model, "system": system, "prompt": user})
         raw = (resp.get("answer") or "").strip()
         m = re.search(r"\[[\d\s,.-]*\]", raw)
         if m is None:
@@ -83,7 +113,10 @@ class LLMCrossEncoder:
         scores = json.loads(m.group())
         if not isinstance(scores, list) or len(scores) != len(texts):
             return None
-        return [max(0.0, min(10.0, float(s))) / 10.0 for s in scores]
+        out = []
+        for s, pen in zip(scores, penalties):
+            out.append(max(0.0, min(10.0, float(s))) / 10.0 * pen)
+        return out
 
 
 class IdentityRewriteLLM:
@@ -107,7 +140,18 @@ class LLMRewriteLLM:
         self._max_chars = max(200, max_chars)
 
     def rewrite(self, query: str, history: list[str]) -> str:
-        # 최근 이력부터 넣어 예산 안에서 최대한 맥락 유지
+        from harag.security.injection import (
+            InjectionScanner, policy_from_settings, build_sidechannel_messages,
+        )
+        pol = policy_from_settings()
+        if pol.enabled and pol.scan_query:
+            v = InjectionScanner(
+                hard_refuse_score=pol.hard_refuse_score,
+            ).verdict(query, source="query", policy=pol)
+            if v.is_hard:
+                # hard면 재작성 LLM을 부르지 않고 원문 유지(추가 오염 방지)
+                return query
+
         lines: list[str] = []
         budget = self._max_chars - len(query) - 120
         for h in reversed(list(history)):
@@ -117,14 +161,20 @@ class LLMRewriteLLM:
             lines.append(piece)
         lines.reverse()
         hist = "\n".join(lines) if lines else "(없음)"
-        prompt = (
-            "다음 대화의 '이전 질의 이력'을 참고해 마지막 '후속 질의'를 "
-            "지시어(그건/그거/거기 등) 없이 독립적으로 검색 가능한 한국어 질의 "
-            "한 문장으로 재작성하라. 설명 없이 재작성된 질의만 출력한다.\n\n"
-            f"[이전 질의 이력]\n{hist}\n\n[후속 질의]\n{query}\n\n[재작성된 질의]"
+        task = (
+            "이전 질의 이력을 참고해 후속 질의를 지시어 없이 "
+            "독립적으로 검색 가능한 한국어 질의 한 문장으로 재작성하라. "
+            "설명 없이 재작성된 질의만 출력한다."
         )
-        if len(prompt) > self._max_chars:
-            prompt = prompt[: self._max_chars]
-        resp = self._transport.post({"model": self._model, "prompt": prompt})
+        system, user = build_sidechannel_messages(
+            task,
+            [f"이전 질의 이력:\n{hist}", f"후속 질의:\n{query}"],
+            policy=pol,
+        )
+        # 예산 절단은 user 쪽에만
+        if len(user) > self._max_chars:
+            user = user[: self._max_chars]
+        resp = self._transport.post({
+            "model": self._model, "system": system, "prompt": user})
         answer = (resp.get("answer") or "").strip()
         return answer or query
