@@ -36,6 +36,7 @@ class Document(Base):
     active_version: Mapped[int] = mapped_column(Integer, default=0)
     n_chunks: Mapped[int] = mapped_column(Integer, default=0)
     status_reason: Mapped[str] = mapped_column(String(256), default="")
+    object_key: Mapped[str] = mapped_column(String(512), default="")
     updated_at: Mapped[datetime] = mapped_column(DateTime)
 
 
@@ -70,6 +71,7 @@ class DocumentRecord:
     department: str = ""
     active_version: int = 0
     status_reason: str = ""
+    object_key: str = ""
     updated_at: datetime | None = None
 
 
@@ -87,6 +89,7 @@ def _to_record(doc: Document) -> DocumentRecord:
         department=doc.department or "",
         active_version=int(doc.active_version or 0),
         status_reason=doc.status_reason or "",
+        object_key=getattr(doc, "object_key", None) or "",
         updated_at=doc.updated_at,
     )
 
@@ -98,9 +101,22 @@ class MetadataStore:
         connect_args = {"check_same_thread": False} if dsn.startswith("sqlite") else {}
         self._engine = create_engine(dsn, future=True, connect_args=connect_args)
         Base.metadata.create_all(self._engine)
+        self._migrate_sqlite_columns()
         self._Session = sessionmaker(
             self._engine, expire_on_commit=False, future=True,
         )
+
+    def _migrate_sqlite_columns(self) -> None:
+        """기존 sqlite 파일에 신규 컬럼 추가(create_all은 컬럼을 안 넣음)."""
+        if not str(self._engine.url).startswith("sqlite"):
+            return
+        with self._engine.begin() as conn:
+            rows = conn.exec_driver_sql("PRAGMA table_info(documents)").fetchall()
+            cols = {r[1] for r in rows}
+            if "object_key" not in cols:
+                conn.exec_driver_sql(
+                    "ALTER TABLE documents ADD COLUMN object_key VARCHAR(512) DEFAULT ''"
+                )
 
     def _session(self) -> Session:
         return self._Session()
@@ -111,6 +127,7 @@ class MetadataStore:
     # ── 라이브 ingest용 owner 스코프 API ──
     def register_for_owner(
         self, document_id: str, filename: str, owner: str,
+        department: str = "",
     ) -> str:
         """등록. ready/processing이면 'duplicate', 신규·failed 재시도면 'accepted'."""
         with self._session() as s:
@@ -123,6 +140,8 @@ class MetadataStore:
                 doc.status = "processing"
                 doc.status_reason = ""
                 doc.n_chunks = 0
+                if department:
+                    doc.department = department
                 doc.updated_at = _now()
                 s.commit()
             else:
@@ -130,11 +149,12 @@ class MetadataStore:
                     uploaded_by=owner,
                     document_id=document_id,
                     filename=filename,
-                    department="",
+                    department=department or "",
                     status="processing",
                     active_version=0,
                     n_chunks=0,
                     status_reason="",
+                    object_key="",
                     updated_at=_now(),
                 ))
                 s.commit()
@@ -144,6 +164,15 @@ class MetadataStore:
             trace_id=document_id,
         )
         return "accepted"
+
+    def set_object_key(self, document_id: str, owner: str, object_key: str) -> None:
+        with self._session() as s:
+            doc = self._get(s, document_id, owner)
+            if doc is None:
+                return
+            doc.object_key = (object_key or "")[:512]
+            doc.updated_at = _now()
+            s.commit()
 
     def get_for_owner(self, document_id: str, owner: str) -> DocumentRecord | None:
         with self._session() as s:
@@ -172,19 +201,26 @@ class MetadataStore:
         )
         return True
 
-    def mark_ready(self, document_id: str, owner: str, n_chunks: int) -> None:
+    def mark_ready(self, document_id: str, owner: str, n_chunks: int,
+                   warning: str | None = None,
+                   version: int | None = None) -> None:
         with self._session() as s:
             doc = self._get(s, document_id, owner)
             if doc is None:
                 return
             doc.status = "ready"
             doc.n_chunks = int(n_chunks)
-            doc.active_version = max(doc.active_version, 1)
-            doc.status_reason = ""
+            if version is not None:
+                doc.active_version = int(version)
+            else:
+                doc.active_version = max(int(doc.active_version or 0) + 1, 1)
+            # ready여도 파서 제한 경고(예: HWP 표)를 남길 수 있다.
+            doc.status_reason = (warning or "")[:256]
             doc.updated_at = _now()
+            ver = int(doc.active_version)
             s.commit()
         self.record_version(
-            document_id, version=1, chunk_count=n_chunks, table_recovery=0.0,
+            document_id, version=ver, chunk_count=n_chunks, table_recovery=0.0,
         )
 
     def mark_failed(self, document_id: str, owner: str, reason: str) -> None:
@@ -250,9 +286,36 @@ class MetadataStore:
             doc = self._get(s, document_id, uploaded_by)
             if doc:
                 doc.active_version = version
-                doc.status = "indexed"
+                # ready 유지(창구 상태). 레거시 'indexed'는 ready와 동치로 취급.
+                if doc.status not in ("failed", "processing"):
+                    doc.status = "ready"
                 doc.updated_at = _now()
                 s.commit()
+
+    def list_for_acl(self, owner: str, dept_tags: list[str] | None = None
+                     ) -> list[DocumentRecord]:
+        """본인 문서 + (선택) 동일 부서 문서."""
+        with self._session() as s:
+            rows = list(s.scalars(
+                select(Document).where(Document.uploaded_by == owner)
+                .order_by(Document.updated_at.desc())
+            ))
+            depts = []
+            for t in dept_tags or []:
+                if t.startswith("dept:"):
+                    depts.append(t.split(":", 1)[1])
+            if depts:
+                extra = list(s.scalars(
+                    select(Document).where(Document.department.in_(depts))
+                    .order_by(Document.updated_at.desc())
+                ))
+                seen = {(r.uploaded_by, r.document_id) for r in rows}
+                for d in extra:
+                    key = (d.uploaded_by, d.document_id)
+                    if key not in seen:
+                        rows.append(d)
+                        seen.add(key)
+            return [_to_record(d) for d in rows]
 
     def list_documents(self, department: str | None = None,
                        uploaded_by: str | None = None) -> list[DocumentRecord]:

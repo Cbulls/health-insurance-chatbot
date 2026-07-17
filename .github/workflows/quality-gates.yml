@@ -1,0 +1,31 @@
+name: Quality & Performance Gates
+
+# 야간·수동. 오프라인 골드셋 게이트 + 측정 방법론 + (선택) 포맷 표본.
+on:
+  schedule:
+    - cron: "0 17 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  quality-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: pip install -e ".[dev]"
+      - name: Measurement methodology
+        run: pytest tests/contract/test_eval.py tests/contract/test_poc.py -v --tb=short
+      - name: Domain goldset quality gate
+        run: PYTHONPATH=src python -m harag.eval.run_quality_gate
+      - name: Perf harness smoke
+        run: PYTHONPATH=src python -c "from harag.eval.perf import percentile; assert percentile([1.0,2.0,3.0], 50) >= 1"
+
+  slo-freeze-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: SLO config present
+        run: test -f eval/slo.yaml && cat eval/slo.yaml

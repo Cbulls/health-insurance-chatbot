@@ -33,7 +33,7 @@ def _build_and_inject() -> None:
     from harag.embedding.api_embedder import build_embedding_model, build_morph
     from harag.embedding.embedder import HybridEmbedder
     from harag.retrieval.qdrant_store import QdrantVectorStore
-    from harag.parsing.pdf_parser import PdfParser
+    from harag.parsing.document_parser import DocumentParser
     from harag.chunking.chunker import StructuralChunker
     from harag.generation.generator import AnswerGenerator
     from harag.llm.factory import build_llm_client
@@ -53,7 +53,11 @@ def _build_and_inject() -> None:
     from harag.storage.redis_ingest_queue import RedisIngestQueue
     from harag.storage.redis_stores import RedisConversationStore
     from harag.api import ratelimit as ratelimit_mod
+    from harag.api import daily_budget as daily_budget_mod
     from harag.config.settings import resolve_rerank_defaults
+    from harag.security.pii import PiiMasker
+    from harag.storage.object_store_factory import build_object_store
+    from harag.indexing.version_coord import DocumentVersionCoordinator
 
     settings = get_settings()
 
@@ -96,9 +100,14 @@ def _build_and_inject() -> None:
     _ingest_queue = ingest_queue
     if redis is not None:
         ratelimit_mod.configure_redis(redis, prefix=prefix)
+        daily_budget_mod.configure_redis(redis, prefix=prefix)
         conv_store = RedisConversationStore(redis, prefix=prefix)
     else:
         conv_store = ConversationStore()
+
+    pii_masker = PiiMasker() if settings.pii_mask_enabled else None
+    object_store = build_object_store(settings)
+    version_coord = DocumentVersionCoordinator(metadata)
 
     embedding_model = build_embedding_model(settings)
     # 적재(embedder)와 질의(store)가 반드시 같은 토크나이저를 공유해야
@@ -196,11 +205,14 @@ def _build_and_inject() -> None:
         top_k=settings.top_k,
         under_load_inflight=settings.rerank_under_load_inflight,
         context_dedupe=settings.context_dedupe,
+        metadata=metadata,
     )
     ingest = InProcessIngest(
-        parser=PdfParser(), chunker=StructuralChunker(),
+        parser=DocumentParser(), chunker=StructuralChunker(),
         embedder=embedder, store=store, metadata=metadata,
-        queue=ingest_queue, status_cache=status_cache)
+        queue=ingest_queue, status_cache=status_cache,
+        pii_masker=pii_masker, object_store=object_store,
+        version_coord=version_coord)
 
     set_query_pipeline(pipeline)
     set_ingest(ingest)
@@ -294,6 +306,13 @@ def create_app() -> FastAPI:
 
         body["redis"] = await asyncio.to_thread(_redis_health)
         return body
+
+    @app.get("/metrics")
+    async def metrics():
+        from fastapi.responses import PlainTextResponse
+        from harag.observability.metrics_export import prometheus_text
+        return PlainTextResponse(
+            prometheus_text(), media_type="text/plain; version=0.0.4")
 
     # 프론트엔드 정적 서빙(있을 때만). API 라우트 뒤에 mount → /v1·/health 우선.
     fe = _frontend_dir()

@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: harag-config
+  namespace: harag
+data:
+  QDRANT_COLLECTION: harag_pdf_mvp
+  REDIS_KEY_PREFIX: "harag:"
+  PII_MASK_ENABLED: "true"
+  AUTH_ALLOW_DEMO_OWNER: "false"
+  RATE_LIMIT_QPM: "20"
+  DAILY_QUESTION_BUDGET: "200"
+  HARAG_SPOOL_DIR: /app/spool

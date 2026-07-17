@@ -16,6 +16,8 @@ dependencies = [
     "httpx>=0.27",
     "qdrant-client>=1.9",
     "pdfplumber>=0.11",
+    "python-docx>=1.1",  # DOCX → RawBlock
+    "olefile>=0.46",     # HWP5 OLE 컨테이너(PrvText 등)
     "SQLAlchemy>=2.0",   # storage/metadata_store (운영 메타 진실원천, sqlite/postgres 공용)
     "PyJWT>=2.8",        # api/auth_jwt (JWT 서명·만료 검증)
     "redis>=5.0",        # 큐·상태캐시·레이트/대화 스토어(REDIS_URL 없으면 인메모리 폴백)
@@ -26,6 +28,7 @@ dependencies = [
 dev = ["pytest>=8.0", "pytest-asyncio>=0.23"]
 postgres = ["psycopg[binary]>=3.1"]
 korean = ["kiwipiepy>=0.18"]  # 형태소 sparse 토크나이저(없으면 어절 폴백)
+s3 = ["boto3>=1.34"]  # ObjectStore MinIO/S3
 
 [tool.setuptools.packages.find]
 where = ["src"]

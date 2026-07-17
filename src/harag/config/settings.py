@@ -147,7 +147,7 @@ class Settings:
     rate_limit_qpm: int            # owner별 분당 요청 상한(0이면 비활성)
     allowed_origins: tuple[str, ...]  # CORS 허용 오리진(비면 CORS 미들웨어 생략)
 
-    # ── 인증(JWT, 선택) ──
+    # ── 인증(JWT / OIDC, 선택) ──
     auth_jwt_secret: str           # 설정 시 Bearer JWT 검증 강제(fail-closed)
     auth_jwt_algorithms: tuple[str, ...]
     auth_jwt_audience: str
@@ -166,6 +166,25 @@ class Settings:
     redis_stream_maxlen: int       # 인제스트 스트림 approximate trim
     ingest_visibility_sec: int     # PEL idle 후 reclaim(초)
     ingest_max_attempts: int       # 실패 재시도 상한 후 DLQ
+
+    # ── 파서·변환 ──
+    parse_min_table_recovery: float  # HWP5 표 복원 경고 임계(미만이면 UI 경고)
+    enable_doc_convert: bool         # .doc → LibreOffice DOCX
+    libreoffice_bin: str
+    doc_convert_timeout_sec: int
+
+    # ── 고도화(기본값 있음 — 테스트 Settings(**base) 호환) ──
+    auth_oidc_jwks_url: str = ""
+    auth_allow_demo_owner: bool = True
+    pii_mask_enabled: bool = True
+    daily_question_budget: int = 0
+    daily_token_budget: int = 0
+    object_store_endpoint: str = ""
+    object_store_access_key: str = ""
+    object_store_secret_key: str = ""
+    object_store_bucket: str = "harag-originals"
+    object_store_region: str = "us-east-1"
+    ocr_scan_ratio_threshold: float = 0.15
 
     @property
     def qdrant_url_or_none(self) -> str | None:
@@ -244,6 +263,8 @@ def get_settings() -> Settings:
         auth_jwt_algorithms=_split_csv(_get("AUTH_JWT_ALGORITHMS", "HS256")),
         auth_jwt_audience=_get("AUTH_JWT_AUDIENCE", ""),
         auth_jwt_issuer=_get("AUTH_JWT_ISSUER", ""),
+        auth_oidc_jwks_url=_get("AUTH_OIDC_JWKS_URL", ""),
+        auth_allow_demo_owner=_get_bool("AUTH_ALLOW_DEMO_OWNER", True),
         database_url=_get("DATABASE_URL", "sqlite:///./data/harag.db")
                        or "sqlite:///./data/harag.db",
         redis_url=_get("REDIS_URL", ""),
@@ -251,6 +272,21 @@ def get_settings() -> Settings:
         redis_stream_maxlen=_get_int("REDIS_STREAM_MAXLEN", 10000),
         ingest_visibility_sec=_get_int("INGEST_VISIBILITY_SEC", 120),
         ingest_max_attempts=_get_int("INGEST_MAX_ATTEMPTS", 3),
+        parse_min_table_recovery=_get_float("PARSE_MIN_TABLE_RECOVERY", 0.5),
+        enable_doc_convert=_get_bool("ENABLE_DOC_CONVERT", True),
+        libreoffice_bin=_get("LIBREOFFICE_BIN", "soffice") or "soffice",
+        doc_convert_timeout_sec=_get_int("DOC_CONVERT_TIMEOUT_SEC", 120),
+        pii_mask_enabled=_get_bool("PII_MASK_ENABLED", True),
+        daily_question_budget=_get_int("DAILY_QUESTION_BUDGET", 0),
+        daily_token_budget=_get_int("DAILY_TOKEN_BUDGET", 0),
+        object_store_endpoint=_get("OBJECT_STORE_ENDPOINT", ""),
+        object_store_access_key=_get("OBJECT_STORE_ACCESS_KEY", ""),
+        object_store_secret_key=_get("OBJECT_STORE_SECRET_KEY", ""),
+        object_store_bucket=_get("OBJECT_STORE_BUCKET", "harag-originals")
+                            or "harag-originals",
+        object_store_region=_get("OBJECT_STORE_REGION", "us-east-1")
+                            or "us-east-1",
+        ocr_scan_ratio_threshold=_get_float("OCR_SCAN_RATIO_THRESHOLD", 0.15),
     )
 
 

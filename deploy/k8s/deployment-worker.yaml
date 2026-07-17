@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: harag-worker
+  namespace: harag
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: harag-worker
+  template:
+    metadata:
+      labels:
+        app: harag-worker
+    spec:
+      containers:
+        - name: worker
+          image: harag-app:latest
+          command: ["python", "-m", "harag.indexing.run_worker"]
+          envFrom:
+            - configMapRef:
+                name: harag-config
+            - secretRef:
+                name: harag-secrets
+          resources:
+            requests:
+              cpu: "250m"
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi

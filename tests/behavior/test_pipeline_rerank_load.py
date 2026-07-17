@@ -72,5 +72,5 @@ def test_dedupe_applied_in_pipeline():
         top_k=5, under_load_inflight=99, context_dedupe=True,
     )
     auth = AuthContext(user_id="u", acl_tags=frozenset({"owner:u"}))
-    out = pipe._retrieve_sync("q", auth, None)
+    out, _tr = pipe._retrieve_sync("q", auth, None)
     assert len(out) == 1

@@ -1,0 +1,126 @@
+{
+  "description": "오프라인 CI용 합성 SystemOutput — 골드셋 스키마·게이트 로직 검증",
+  "outputs": {
+    "hi_pdf_body_01": {
+      "retrieved_chunk_ids": ["nhis_premium_calc_body", "other"],
+      "answer": "보수월액에 보험료율을 곱하여 산정한다 [문서 1]",
+      "cited_chunk_ids": ["nhis_premium_calc_body"]
+    },
+    "hi_pdf_body_02": {
+      "retrieved_chunk_ids": ["nhis_dependent_loss"],
+      "answer": "소득·재산 기준 초과 등 [문서 1]",
+      "cited_chunk_ids": ["nhis_dependent_loss"]
+    },
+    "hi_pdf_table_01": {
+      "retrieved_chunk_ids": ["nhis_copay_table_clinic"],
+      "answer": "의원급 본인부담률은 표 기준입니다 [문서 1]",
+      "cited_chunk_ids": ["nhis_copay_table_clinic"]
+    },
+    "hi_pdf_table_02": {
+      "retrieved_chunk_ids": ["nhis_copay_table_tertiary"],
+      "answer": "상급종합 입원 본인부담률 [문서 1]",
+      "cited_chunk_ids": ["nhis_copay_table_tertiary"]
+    },
+    "hi_multi_01": {
+      "retrieved_chunk_ids": ["leave_maternity_period", "leave_premium_exempt"],
+      "answer": "휴가 기간과 면제 조건 [문서 1][문서 2]",
+      "cited_chunk_ids": ["leave_maternity_period", "leave_premium_exempt"]
+    },
+    "hi_multi_02": {
+      "retrieved_chunk_ids": ["audit_target", "audit_notice_deadline"],
+      "answer": "대상과 통보 기한 [문서 1]",
+      "cited_chunk_ids": ["audit_target", "audit_notice_deadline"]
+    },
+    "hi_absent_01": {
+      "retrieved_chunk_ids": ["unrelated"],
+      "answer": null,
+      "cited_chunk_ids": []
+    },
+    "hi_absent_02": {
+      "retrieved_chunk_ids": [],
+      "answer": null,
+      "cited_chunk_ids": []
+    },
+    "hi_hwpx_body_01": {
+      "retrieved_chunk_ids": ["hwpx_local_score_body"],
+      "answer": "부과요소 점수 합산 [문서 1]",
+      "cited_chunk_ids": ["hwpx_local_score_body"]
+    },
+    "hi_hwpx_table_01": {
+      "retrieved_chunk_ids": ["hwpx_property_score_table"],
+      "answer": "재산 과표 구간 표 [문서 1]",
+      "cited_chunk_ids": ["hwpx_property_score_table"]
+    },
+    "hi_hwp5_body_01": {
+      "retrieved_chunk_ids": ["hwp5_voluntary_continue"],
+      "page": 1,
+      "answer": "자격 상실일부터 기한 이내 [문서 1]",
+      "cited_chunk_ids": ["hwp5_voluntary_continue"]
+    },
+    "hi_hwp5_partial_01": {
+      "retrieved_chunk_ids": ["hwp5_fee_table_limited"],
+      "answer": null,
+      "cited_chunk_ids": []
+    },
+    "hi_docx_01": {
+      "retrieved_chunk_ids": ["docx_reply_deadline"],
+      "answer": "접수일로부터 N일 [문서 1]",
+      "cited_chunk_ids": ["docx_reply_deadline"]
+    },
+    "hi_docx_02": {
+      "retrieved_chunk_ids": ["docx_required_fields"],
+      "answer": "필수 기재 항목 [문서 1]",
+      "cited_chunk_ids": ["docx_required_fields"]
+    },
+    "hi_conflict_01": {
+      "retrieved_chunk_ids": ["copay_cap_v2_active"],
+      "answer": "최신 고시 상한액 [문서 1]",
+      "cited_chunk_ids": ["copay_cap_v2_active"]
+    },
+    "hi_conflict_02": {
+      "retrieved_chunk_ids": ["copay_cap_v2_active"],
+      "answer": "현행 고시 금액 [문서 1]",
+      "cited_chunk_ids": ["copay_cap_v2_active"]
+    },
+    "hi_pdf_body_03": {
+      "retrieved_chunk_ids": ["nhis_cert_issue"],
+      "answer": "온라인·방문 발급 [문서 1]",
+      "cited_chunk_ids": ["nhis_cert_issue"]
+    },
+    "hi_pdf_table_03": {
+      "retrieved_chunk_ids": ["drug_copay_table"],
+      "answer": "일반약 구간 [문서 1]",
+      "cited_chunk_ids": ["drug_copay_table"]
+    },
+    "hi_absent_03": {
+      "retrieved_chunk_ids": [],
+      "answer": null,
+      "cited_chunk_ids": []
+    },
+    "hi_hwpx_body_02": {
+      "retrieved_chunk_ids": ["hwpx_reduction_docs"],
+      "answer": "신청서 및 증빙 [문서 1]",
+      "cited_chunk_ids": ["hwpx_reduction_docs"]
+    },
+    "hi_multi_03": {
+      "retrieved_chunk_ids": ["abroad_keep_eligible", "abroad_return_report"],
+      "answer": "유지 조건과 신고 기한 [문서 1]",
+      "cited_chunk_ids": ["abroad_keep_eligible", "abroad_return_report"]
+    },
+    "hi_docx_03": {
+      "retrieved_chunk_ids": ["docx_review_dept"],
+      "answer": "검토 부서 [문서 1]",
+      "cited_chunk_ids": ["docx_review_dept"]
+    },
+    "hi_conflict_03": {
+      "retrieved_chunk_ids": ["copay_cap_v2_active"],
+      "answer": "개정 후만 인용 [문서 1]",
+      "cited_chunk_ids": ["copay_cap_v2_active"]
+    },
+    "hi_absent_04": {
+      "retrieved_chunk_ids": ["noise"],
+      "answer": null,
+      "cited_chunk_ids": []
+    }
+  }
+}

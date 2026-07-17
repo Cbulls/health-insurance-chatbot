@@ -51,7 +51,10 @@ class InProcessIngest:
                  metadata: MetadataStore | None = None,
                  max_workers: int = 2,
                  queue=None,
-                 status_cache=None):
+                 status_cache=None,
+                 pii_masker=None,
+                 object_store=None,
+                 version_coord=None):
         self._metadata = metadata or MetadataStore(dsn="sqlite:///:memory:")
         self._cache = status_cache
         self._queue = queue  # RedisIngestQueue | None
@@ -60,7 +63,9 @@ class InProcessIngest:
             on_failed = queue.on_failed
         self._pipeline = PdfIngestPipeline(
             parser, chunker, embedder, store, self._metadata,
-            status_cache=status_cache, on_failed=on_failed)
+            status_cache=status_cache, on_failed=on_failed,
+            pii_masker=pii_masker, object_store=object_store,
+            version_coord=version_coord)
         self._lock = threading.Lock()
         self._executor = ThreadPoolExecutor(
             max_workers=max_workers, thread_name_prefix="harag-ingest")
@@ -69,18 +74,26 @@ class InProcessIngest:
     def uses_queue(self) -> bool:
         return self._queue is not None
 
+    @property
+    def pipeline(self) -> PdfIngestPipeline:
+        return self._pipeline
+
     def submit(self, document_id: str, spool_path: str, filename: str,
-               owner: str) -> None:
+               owner: str, acl_tags: list[str] | None = None,
+               department: str = "") -> None:
         """스풀된 임시 파일을 큐 또는 전용 스레드풀로 위임."""
+        tags = list(acl_tags) if acl_tags else [_owner_tag(owner)]
+        dept = department or "self"
         if self._queue is not None:
-            tags = [_owner_tag(owner)]
             ok = self._queue.enqueue(
-                document_id, spool_path, filename, owner, acl_tags=tags)
+                document_id, spool_path, filename, owner,
+                department=dept, acl_tags=tags)
             if not ok:
                 # failed→재등록 후 in-flight 잔존이 흔한 원인 → 해제 후 1회 재시도
                 self._queue.clear_inflight(document_id)
                 ok = self._queue.enqueue(
-                    document_id, spool_path, filename, owner, acl_tags=tags)
+                    document_id, spool_path, filename, owner,
+                    department=dept, acl_tags=tags)
             if not ok:
                 rec = self._metadata.get_for_owner(document_id, owner)
                 # 이미 ready인 중복만 스풀 삭제. processing인데 enqueue 실패는
@@ -100,20 +113,27 @@ class InProcessIngest:
             return
         self._executor.submit(
             self._pipeline.process_file, document_id, spool_path,
-            filename, owner)
+            filename, owner, tags, department)
 
     def process_file(self, document_id: str, spool_path: str, filename: str,
-                     owner: str) -> None:
-        self._pipeline.process_file(document_id, spool_path, filename, owner)
+                     owner: str, acl_tags: list[str] | None = None,
+                     department: str = "") -> None:
+        self._pipeline.process_file(
+            document_id, spool_path, filename, owner,
+            acl_tags=acl_tags, department=department)
 
     def process(self, document_id: str, raw: bytes, filename: str,
-                owner: str) -> None:
-        self._pipeline.process(document_id, raw, filename, owner)
+                owner: str, acl_tags: list[str] | None = None,
+                department: str = "") -> None:
+        self._pipeline.process(
+            document_id, raw, filename, owner,
+            acl_tags=acl_tags, department=department)
 
-    def register(self, document_id: str, filename: str, owner: str) -> str:
+    def register(self, document_id: str, filename: str, owner: str,
+                 department: str = "") -> str:
         with self._lock:
             result = self._metadata.register_for_owner(
-                document_id, filename, owner)
+                document_id, filename, owner, department=department)
         if result == "accepted" and self._cache is not None:
             self._cache.set(document_id, owner, {
                 "document_id": document_id, "filename": filename,

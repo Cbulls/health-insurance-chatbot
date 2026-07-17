@@ -28,13 +28,24 @@ class AuthError(Exception):
 
 
 def _default_claim_mapper(claims: dict) -> tuple[str, frozenset[str]]:
-    """기본 매핑: departments → dept:*, roles → role:*.
+    """기본 매핑: departments/dept/department → dept:*, roles → role:*.
     조직 클레임 구조가 다르면 claim_mapper로 교체."""
     tags = set()
-    for dept in claims.get("departments", []):
-        tags.add(f"dept:{dept}")
-    for role in claims.get("roles", []):
-        tags.add(f"role:{role}")
+    depts = list(claims.get("departments") or [])
+    if claims.get("dept"):
+        depts.append(claims["dept"])
+    if claims.get("department"):
+        depts.append(claims["department"])
+    for dept in depts:
+        if dept:
+            tags.add(f"dept:{dept}")
+    for role in claims.get("roles", []) or []:
+        if role:
+            tags.add(f"role:{role}")
+    # acl_mode 힌트(문서 태깅용 — 검색 필터는 dept/owner overlap)
+    mode = claims.get("acl_mode")
+    if mode in ("private", "dept", "org"):
+        tags.add(f"acl:{mode}")
     user_id = claims.get("sub", "")
     return user_id, frozenset(tags)
 

@@ -66,9 +66,13 @@ class _Line(NamedTuple):
 class PdfParser:
     """PDF → DocumentIR. Parser Protocol의 PDF 특화 구현."""
 
+    def __init__(self) -> None:
+        self.last_fail_code: str | None = None
+
     def parse(self, raw: bytes, *, document_id: str, filename: str,
               source_system: str = "user-upload", department: str = "self",
               security_level: str = "internal") -> DocumentIR:
+        self.last_fail_code = None
         meta = SourceMetadata(
             source_system=source_system, department=department,
             security_level=security_level, original_path=filename,
@@ -82,6 +86,7 @@ class PdfParser:
         current_clause = ""
         # 페이지별 상·하단 밴드 텍스트 → 2페이지 이상 반복되면 노이즈
         band_counter: Counter[str] = Counter()
+        n_pages_seen = 0
 
         try:
             import io
@@ -94,6 +99,7 @@ class PdfParser:
                     for t in bands:
                         band_counter[t] += 1
                 n_pages = max(1, len(pdf.pages))
+                n_pages_seen = len(pdf.pages)
                 noise_texts = {
                     t for t, c in band_counter.items()
                     if c >= 2 or (n_pages == 1 and _PAGE_NUM_RE.match(t))
@@ -169,11 +175,23 @@ class PdfParser:
                         last_bottom = bottom
                         _ = x0  # 열 정렬은 _page_items에서 이미 반영
                     flush_para()
-        except Exception:  # noqa: BLE001 — 열기 실패(암호·손상) → failed
+        except Exception as e:  # noqa: BLE001 — 열기 실패(암호·손상) → failed
             logger.exception("pdf parse failed: %s", filename)
+            msg = str(e).lower()
+            ename = type(e).__name__.lower()
+            if ("password" in msg or "encrypt" in msg
+                    or "password" in ename):
+                self.last_fail_code = "encrypted_pdf"
+            else:
+                self.last_fail_code = "parse_failed"
             return self._failed(document_id, meta)
 
         if not blocks or all(b.is_noise for b in blocks):
+            # 페이지는 있는데 텍스트가 없으면 스캔본으로 본다
+            if n_pages_seen > 0:
+                self.last_fail_code = "scan_pdf_no_ocr"
+            else:
+                self.last_fail_code = "parse_failed"
             return self._failed(document_id, meta)
 
         table_rec = (table_conf_sum / n_tables) if n_tables else 1.0

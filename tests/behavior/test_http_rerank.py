@@ -76,10 +76,16 @@ def test_resolve_defaults_http_vs_lexical():
         rerank_top_n=5, rerank_timeout_ms=1000,
         rerank_min_score=-1.0, retrieval_blend=-1.0,
         rerank_under_load_inflight=4, context_dedupe=True,
+        rerank_llm_enabled=False, rerank_llm_model="",
         max_upload_bytes=1, rate_limit_qpm=0, allowed_origins=(),
         auth_jwt_secret="", auth_jwt_algorithms=("HS256",),
         auth_jwt_audience="", auth_jwt_issuer="",
         database_url="sqlite:///:memory:",
+        redis_url="", redis_key_prefix="harag:",
+        redis_stream_maxlen=10000, ingest_visibility_sec=120,
+        ingest_max_attempts=3,
+        parse_min_table_recovery=0.5, enable_doc_convert=True,
+        libreoffice_bin="soffice", doc_convert_timeout_sec=120,
     )
     lex = Settings(**base)
     b, m = resolve_rerank_defaults(lex)

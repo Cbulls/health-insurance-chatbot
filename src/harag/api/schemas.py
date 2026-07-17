@@ -15,6 +15,9 @@ class Citation(BaseModel):
     citation_label: str
     source_document: str
     page: Union[int, list[int], None] = None
+    chunk_id: str = ""
+    struct_path: str = ""
+    snippet: str = ""
 
 
 class QueryResponse(BaseModel):

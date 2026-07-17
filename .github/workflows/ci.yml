@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install package
+        run: pip install -e ".[dev]"
+      - name: Contract tests
+        run: pytest tests/contract -v --tb=short
+      - name: Behavior tests
+        run: pytest tests/behavior -v --tb=short
+      - name: Offline quality gate (synthetic outputs)
+        run: PYTHONPATH=src python -m harag.eval.run_quality_gate
+      - name: Format gate script import smoke
+        run: python -c "import ast; ast.parse(open('scripts/poc_format_gate.py').read())"
+
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build app image
+        run: docker build -t harag-app:ci .

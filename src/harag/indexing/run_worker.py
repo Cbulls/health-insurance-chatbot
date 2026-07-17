@@ -33,13 +33,16 @@ def build_pipeline():
     from harag.embedding.api_embedder import build_embedding_model, build_morph
     from harag.embedding.embedder import HybridEmbedder
     from harag.retrieval.qdrant_store import QdrantVectorStore
-    from harag.parsing.pdf_parser import PdfParser
+    from harag.parsing.document_parser import DocumentParser
     from harag.chunking.chunker import StructuralChunker
     from harag.storage.metadata_store import MetadataStore
     from harag.storage.redis_client import get_redis
     from harag.storage.redis_cache import DocStatusCache
     from harag.storage.redis_ingest_queue import RedisIngestQueue
     from harag.indexing.pdf_pipeline import PdfIngestPipeline
+    from harag.security.pii import PiiMasker
+    from harag.storage.object_store_factory import build_object_store
+    from harag.indexing.version_coord import DocumentVersionCoordinator
 
     settings = get_settings()
     if not settings.redis_url:
@@ -85,10 +88,16 @@ def build_pipeline():
         visibility_sec=settings.ingest_visibility_sec,
         max_attempts=settings.ingest_max_attempts,
     )
+    pii_masker = PiiMasker() if settings.pii_mask_enabled else None
+    object_store = build_object_store(settings)
+    version_coord = DocumentVersionCoordinator(metadata)
     pipeline = PdfIngestPipeline(
-        PdfParser(), StructuralChunker(), embedder, store, metadata,
+        DocumentParser(), StructuralChunker(), embedder, store, metadata,
         status_cache=cache,
         on_failed=queue.on_failed,
+        pii_masker=pii_masker,
+        object_store=object_store,
+        version_coord=version_coord,
     )
     return queue, pipeline
 
@@ -109,9 +118,11 @@ def main() -> int:
         if job is None:
             continue
         try:
+            dept = job.department if job.department not in ("", "self") else ""
             pipeline.process_file(
                 job.document_id, job.spool_path, job.filename,
-                job.uploaded_by)
+                job.uploaded_by, acl_tags=job.acl_tags or None,
+                department=dept)
             # 논리 성공·실패 모두 메시지 완료(XACK + in-flight 해제)
             queue.ack_success(job)
         except Exception as e:  # noqa: BLE001

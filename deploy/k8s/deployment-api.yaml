@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: harag-api
+  namespace: harag
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: harag-api
+  template:
+    metadata:
+      labels:
+        app: harag-api
+    spec:
+      containers:
+        - name: api
+          image: harag-app:latest
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: harag-config
+            - secretRef:
+                name: harag-secrets
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "250m"
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: harag-api
+  namespace: harag
+spec:
+  selector:
+    app: harag-api
+  ports:
+    - port: 80
+      targetPort: 8000

@@ -12,34 +12,29 @@ from fastapi.responses import StreamingResponse
 
 from harag.api.middleware import current_trace_id
 from harag.api.ratelimit import enforce_rate_limit
-from harag.api.schemas import QueryRequest, QueryResponse, Citation
-from harag.contracts.boundaries import AuthContext, ScoredChunk
+from harag.api.citations_fmt import citations_from_chunks
+from harag.api.schemas import QueryRequest, QueryResponse
+from harag.contracts.boundaries import AuthContext
 
 logger = logging.getLogger("harag.api")
 
 router = APIRouter(prefix="/v1", tags=["query"])
 
 
-def _to_citations(chunks: list[ScoredChunk]) -> list[Citation]:
-    """내부 청크 → 사용자용 출처. 내부 메타는 떨군다(누설 방지)."""
-    seen, out = set(), []
-    for sc in chunks:
-        label = sc.chunk.meta.citation_label
-        if label in seen:
-            continue
-        seen.add(label)
-        out.append(Citation(
-            citation_label=label,
-            source_document=sc.chunk.meta.source_document,
-            page=sc.chunk.meta.page_ref,
-        ))
-    return out
+async def _auth_with_budget(
+    auth: AuthContext = Depends(enforce_rate_limit),
+) -> AuthContext:
+    # enforce_daily_budget는 require_auth를 다시 부르므로 rate limit 통과 후
+    # 예산만 검사한다.
+    from harag.api.daily_budget import check_budget
+    check_budget(auth.user_id)
+    return auth
 
 
 @router.post("/query", response_model=QueryResponse)
 async def query(
     req: QueryRequest,
-    auth: AuthContext = Depends(enforce_rate_limit),
+    auth: AuthContext = Depends(_auth_with_budget),
 ):
     from harag.api.deps import get_query_pipeline
     pipeline = get_query_pipeline()
@@ -47,7 +42,7 @@ async def query(
         query=req.query, auth=auth, conversation_id=req.conversation_id)
     return QueryResponse(
         answer=result.answer,
-        citations=_to_citations(result.context_chunks),
+        citations=citations_from_chunks(result.context_chunks),
         abstained=result.abstained,
         abstain_reason=result.abstain_reason,
         trace_id=current_trace_id(),
@@ -57,7 +52,7 @@ async def query(
 @router.post("/query/stream")
 async def query_stream(
     req: QueryRequest,
-    auth: AuthContext = Depends(enforce_rate_limit),
+    auth: AuthContext = Depends(_auth_with_budget),
 ):
     """스트리밍 질의(SSE). abstention은 스트리밍 전에 결정된다."""
     from harag.api.deps import get_query_pipeline, StreamEvent

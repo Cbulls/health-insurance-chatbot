@@ -1,0 +1,234 @@
+{
+  "description": "건강보험·행정문서 도메인 층화 골드셋 v1 (논리 chunk id — 오프라인 게이트/라벨링용)",
+  "version": "1.0",
+  "strata": ["pdf_body", "pdf_table", "multi", "absent", "hwpx", "hwp5", "docx", "conflicting"],
+  "queries": [
+    {
+      "qid": "hi_pdf_body_01",
+      "query": "직장가입자 건강보험료는 어떻게 산정하나요?",
+      "qtype": "body",
+      "gold_chunk_ids": ["nhis_premium_calc_body"],
+      "gold_answer": "보수월액에 보험료율을 곱하여 산정한다",
+      "source_document_id": "nhis_guide_pdf",
+      "format": "pdf",
+      "forbidden_claims": ["임의로 감면한다"]
+    },
+    {
+      "qid": "hi_pdf_body_02",
+      "query": "피부양자 자격 상실 사유는 무엇인가요?",
+      "qtype": "body",
+      "gold_chunk_ids": ["nhis_dependent_loss"],
+      "gold_answer": "소득·재산 기준 초과 등 법령이 정한 사유",
+      "source_document_id": "nhis_guide_pdf",
+      "format": "pdf"
+    },
+    {
+      "qid": "hi_pdf_table_01",
+      "query": "외래 본인부담률 표에서 의원급은 얼마인가요?",
+      "qtype": "table",
+      "gold_chunk_ids": ["nhis_copay_table_clinic"],
+      "gold_answer": "표에 명시된 의원급 본인부담률",
+      "source_document_id": "nhis_benefit_table_pdf",
+      "format": "pdf"
+    },
+    {
+      "qid": "hi_pdf_table_02",
+      "query": "상급종합병원 입원 본인부담률은?",
+      "qtype": "table",
+      "gold_chunk_ids": ["nhis_copay_table_tertiary"],
+      "gold_answer": "표의 상급종합 입원 구간",
+      "source_document_id": "nhis_benefit_table_pdf",
+      "format": "pdf"
+    },
+    {
+      "qid": "hi_multi_01",
+      "query": "출산 전후 휴가 기간과 보험료 납부 면제 조건을 함께 알려주세요",
+      "qtype": "multi_clause",
+      "gold_chunk_ids": ["leave_maternity_period", "leave_premium_exempt"],
+      "gold_answer": "휴가 기간과 면제 조건을 각각 인용",
+      "source_document_id": "leave_policy_pdf",
+      "format": "pdf"
+    },
+    {
+      "qid": "hi_multi_02",
+      "query": "요양기관 현지조사 대상과 결과 통보 기한을 요약해 주세요",
+      "qtype": "multi_clause",
+      "gold_chunk_ids": ["audit_target", "audit_notice_deadline"],
+      "gold_answer": "대상 요건과 통보 기한",
+      "source_document_id": "provider_audit_pdf",
+      "format": "pdf"
+    },
+    {
+      "qid": "hi_absent_01",
+      "query": "화성 거주 외국인의 우주여행 보험 급여는 몇 퍼센트인가요?",
+      "qtype": "absent",
+      "gold_chunk_ids": [],
+      "gold_answer": null,
+      "source_document_id": "nhis_guide_pdf",
+      "format": "pdf",
+      "abstain": true
+    },
+    {
+      "qid": "hi_absent_02",
+      "query": "반려동물 CT 촬영비 환급 절차를 알려주세요",
+      "qtype": "absent",
+      "gold_chunk_ids": [],
+      "gold_answer": null,
+      "source_document_id": "nhis_benefit_table_pdf",
+      "format": "pdf",
+      "abstain": true
+    },
+    {
+      "qid": "hi_hwpx_body_01",
+      "query": "지역가입자 보험료 부과 점수 산정 방식은?",
+      "qtype": "body",
+      "gold_chunk_ids": ["hwpx_local_score_body"],
+      "gold_answer": "소득·재산 등 부과요소 점수 합산",
+      "source_document_id": "local_premium_hwpx",
+      "format": "hwpx"
+    },
+    {
+      "qid": "hi_hwpx_table_01",
+      "query": "부과점수표에서 재산 과표 구간별 점수는?",
+      "qtype": "table",
+      "gold_chunk_ids": ["hwpx_property_score_table"],
+      "gold_answer": "재산 과표 구간 표",
+      "source_document_id": "local_premium_hwpx",
+      "format": "hwpx"
+    },
+    {
+      "qid": "hi_hwp5_body_01",
+      "query": "임의계속가입 신청 기한은 언제인가요?",
+      "qtype": "body",
+      "gold_chunk_ids": ["hwp5_voluntary_continue"],
+      "gold_answer": "자격 상실일부터 법령이 정한 기한 이내",
+      "source_document_id": "voluntary_hwp",
+      "format": "hwp",
+      "notes": "표 질의는 partial 기대 — 본문만 골드"
+    },
+    {
+      "qid": "hi_hwp5_partial_01",
+      "query": "HWP 원본 표의 세부 수가 단가를 정확히 읽어 주세요",
+      "qtype": "table",
+      "gold_chunk_ids": ["hwp5_fee_table_limited"],
+      "gold_answer": null,
+      "source_document_id": "voluntary_hwp",
+      "format": "hwp",
+      "abstain": true,
+      "notes": "hwp5_table_limited — abstain 또는 HWPX 권고가 정답에 가깝다"
+    },
+    {
+      "qid": "hi_docx_01",
+      "query": "문서에 적힌 민원 회신 기한은 며칠인가요?",
+      "qtype": "body",
+      "gold_chunk_ids": ["docx_reply_deadline"],
+      "gold_answer": "접수일로부터 N일 이내",
+      "source_document_id": "civil_reply_docx",
+      "format": "docx"
+    },
+    {
+      "qid": "hi_docx_02",
+      "query": "첨부 서식 제출 시 필수 기재 항목은?",
+      "qtype": "body",
+      "gold_chunk_ids": ["docx_required_fields"],
+      "gold_answer": "성명·생년월일·연락처 등 서식 필수란",
+      "source_document_id": "civil_reply_docx",
+      "format": "docx"
+    },
+    {
+      "qid": "hi_conflict_01",
+      "query": "본인부담 상한액은 얼마인가요?",
+      "qtype": "conflicting",
+      "gold_chunk_ids": ["copay_cap_v2_active"],
+      "gold_answer": "최신 고시(v2) 상한액",
+      "source_document_id": "copay_cap_v2",
+      "format": "pdf",
+      "notes": "구버전 v1 청크는 비활성 — v2만 골드"
+    },
+    {
+      "qid": "hi_conflict_02",
+      "query": "구 고시 기준으로 상한액을 답하면 안 됩니다. 현행은?",
+      "qtype": "conflicting",
+      "gold_chunk_ids": ["copay_cap_v2_active"],
+      "gold_answer": "현행 고시 금액",
+      "source_document_id": "copay_cap_v2",
+      "format": "pdf",
+      "forbidden_claims": ["구 고시 금액"]
+    },
+    {
+      "qid": "hi_pdf_body_03",
+      "query": "자격득실 확인서 발급 방법은?",
+      "qtype": "body",
+      "gold_chunk_ids": ["nhis_cert_issue"],
+      "gold_answer": "온라인·방문 발급 절차",
+      "source_document_id": "nhis_guide_pdf",
+      "format": "pdf"
+    },
+    {
+      "qid": "hi_pdf_table_03",
+      "query": "약제비 본인부담 구분표에서 일반약은?",
+      "qtype": "table",
+      "gold_chunk_ids": ["drug_copay_table"],
+      "gold_answer": "표의 일반약 구간",
+      "source_document_id": "nhis_benefit_table_pdf",
+      "format": "pdf"
+    },
+    {
+      "qid": "hi_absent_03",
+      "query": "가상의 질병코드 ZZ999 급여 인정 여부는?",
+      "qtype": "absent",
+      "gold_chunk_ids": [],
+      "gold_answer": null,
+      "source_document_id": "nhis_guide_pdf",
+      "format": "pdf",
+      "abstain": true
+    },
+    {
+      "qid": "hi_hwpx_body_02",
+      "query": "보험료 경감 신청 서류 목록은?",
+      "qtype": "body",
+      "gold_chunk_ids": ["hwpx_reduction_docs"],
+      "gold_answer": "신청서 및 증빙 목록",
+      "source_document_id": "local_premium_hwpx",
+      "format": "hwpx"
+    },
+    {
+      "qid": "hi_multi_03",
+      "query": "해외 체류 시 자격 유지 조건과 귀국 후 신고 기한을 알려주세요",
+      "qtype": "multi_clause",
+      "gold_chunk_ids": ["abroad_keep_eligible", "abroad_return_report"],
+      "gold_answer": "유지 조건과 신고 기한",
+      "source_document_id": "abroad_policy_pdf",
+      "format": "pdf"
+    },
+    {
+      "qid": "hi_docx_03",
+      "query": "내부 결재선에 명시된 검토 부서는?",
+      "qtype": "body",
+      "gold_chunk_ids": ["docx_review_dept"],
+      "gold_answer": "결재선의 검토 부서명",
+      "source_document_id": "civil_reply_docx",
+      "format": "docx"
+    },
+    {
+      "qid": "hi_conflict_03",
+      "query": "개정 전 문서의 상한액을 인용해도 되나요?",
+      "qtype": "conflicting",
+      "gold_chunk_ids": ["copay_cap_v2_active"],
+      "gold_answer": "개정 후(활성 버전)만 인용",
+      "source_document_id": "copay_cap_v2",
+      "format": "pdf",
+      "forbidden_claims": ["개정 전 상한액"]
+    },
+    {
+      "qid": "hi_absent_04",
+      "query": "내일 복권 당첨금의 건강보험 급여율은?",
+      "qtype": "absent",
+      "gold_chunk_ids": [],
+      "gold_answer": null,
+      "source_document_id": "nhis_guide_pdf",
+      "format": "pdf",
+      "abstain": true
+    }
+  ]
+}

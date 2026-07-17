@@ -1,7 +1,7 @@
 """
 수집(인덱싱) 라우트 — 쓰기 경로의 진입점.
 
-MVP: 업로드 → 즉시 202 → BackgroundTasks로 파싱·임베딩(비동기).
+MVP: 업로드 → 즉시 202 → 큐/스레드풀로 파싱·임베딩(비동기).
 소유자(auth.user_id) 기준으로 문서를 격리한다(본인 문서만 조회).
 """
 from __future__ import annotations
@@ -23,24 +23,29 @@ from harag.contracts.boundaries import AuthContext
 
 router = APIRouter(prefix="/v1", tags=["ingest"])
 
-_ALLOWED_SUFFIX = ".pdf"
+_ALLOWED_SUFFIXES = (".pdf", ".hwpx", ".docx", ".hwp", ".doc")
 _SPOOL_CHUNK = 1024 * 1024  # 1MB
 
 
-async def _spool_upload(file: UploadFile, max_bytes: int) -> tuple[str, str, int]:
-    """업로드를 임시 파일에 청크 단위로 스풀하며 SHA-256·크기 제한을 동시 처리.
+def _suffix_of(filename: str) -> str:
+    lower = (filename or "").lower()
+    # 긴 접미사 우선(.hwpx before .hwp)
+    for s in (".hwpx", ".docx", ".hwp", ".doc", ".pdf"):
+        if lower.endswith(s):
+            return s
+    return ""
 
-    100MB를 통째로 메모리에 올리지 않고, 상한 초과는 조기에 413으로 끊는다.
-    반환: (임시 파일 경로, 해시, 총 크기). 예외 시 임시 파일은 삭제된다.
-    """
+
+async def _spool_upload(file: UploadFile, max_bytes: int,
+                        suffix: str = ".pdf") -> tuple[str, str, int]:
+    """업로드를 임시 파일에 청크 단위로 스풀하며 SHA-256·크기 제한을 동시 처리."""
     hasher = hashlib.sha256()
     total = 0
-    # 워커와 API가 같은 경로를 보려면 HARAG_SPOOL_DIR(공유 볼륨)을 쓴다.
     spool_dir = os.environ.get("HARAG_SPOOL_DIR") or None
     if spool_dir:
         os.makedirs(spool_dir, exist_ok=True)
     fd, path = tempfile.mkstemp(
-        prefix="harag_upload_", suffix=".pdf", dir=spool_dir)
+        prefix="harag_upload_", suffix=suffix or ".pdf", dir=spool_dir)
     try:
         with os.fdopen(fd, "wb") as out:
             while True:
@@ -67,26 +72,41 @@ async def _spool_upload(file: UploadFile, max_bytes: int) -> tuple[str, str, int
              status_code=status.HTTP_202_ACCEPTED)
 async def ingest_document(
     file: UploadFile = File(...),
-    # 업로드는 파싱·임베딩 비용이 커 레이트리밋 적용(조회·폴링은 제외).
     auth: AuthContext = Depends(enforce_rate_limit),
 ):
     settings = get_settings()
     filename = file.filename or "unknown.pdf"
-    if not filename.lower().endswith(_ALLOWED_SUFFIX):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
-                            detail="MVP는 PDF만 지원합니다 (.pdf)")
+    suffix = _suffix_of(filename)
+    if suffix not in _ALLOWED_SUFFIXES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=("지원 형식: PDF, HWPX, DOCX, HWP, DOC "
+                    "(.pdf .hwpx .docx .hwp .doc)"),
+        )
+    if suffix == ".doc" and not settings.enable_doc_convert:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=("구형 DOC 변환이 비활성입니다. DOCX로 저장하거나 "
+                    "ENABLE_DOC_CONVERT=true 및 LibreOffice를 설정하세요."),
+        )
 
     spool_path, digest, total = await _spool_upload(
-        file, settings.max_upload_bytes)
+        file, settings.max_upload_bytes, suffix=suffix)
     document_id = digest[:32]
 
     from harag.api.deps import get_ingest
     ingest = get_ingest()
+    dept = ""
+    for t in auth.acl_tags:
+        if t.startswith("dept:"):
+            dept = t.split(":", 1)[1]
+            break
     try:
         if total == 0:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                                 detail="empty file")
-        result = ingest.register(document_id, filename, auth.user_id)
+        result = ingest.register(
+            document_id, filename, auth.user_id, department=dept)
     except BaseException:
         try:
             os.unlink(spool_path)
@@ -95,8 +115,9 @@ async def ingest_document(
         raise
 
     if result == "accepted":
-        # 전용 인제스트 스레드풀로 위임(임시 파일은 처리 후 삭제됨)
-        ingest.submit(document_id, spool_path, filename, auth.user_id)
+        ingest.submit(
+            document_id, spool_path, filename, auth.user_id,
+            acl_tags=sorted(auth.acl_tags), department=dept)
     else:
         try:
             os.unlink(spool_path)
@@ -107,42 +128,75 @@ async def ingest_document(
         document_id=document_id, status=result, trace_id=current_trace_id())
 
 
+@router.post("/documents/{document_id}/reindex",
+             status_code=status.HTTP_202_ACCEPTED)
+async def reindex_document(document_id: str,
+                           auth: AuthContext = Depends(require_auth)):
+    """ObjectStore에 보존된 원본으로 재인덱싱."""
+    from harag.api.deps import get_ingest
+    ingest = get_ingest()
+    dept = ""
+    for t in auth.acl_tags:
+        if t.startswith("dept:"):
+            dept = t.split(":", 1)[1]
+            break
+    ok = ingest.pipeline.reindex_from_store(
+        document_id, auth.user_id,
+        acl_tags=sorted(auth.acl_tags), department=dept)
+    if not ok:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="original not found in object store",
+        )
+    return {"document_id": document_id, "status": "accepted",
+            "trace_id": current_trace_id()}
+
+
 @router.get("/documents", response_model=list[DocumentStatus])
 async def list_documents(auth: AuthContext = Depends(require_auth)):
     from harag.api.deps import get_ingest
     ingest = get_ingest()
+    dept_tags = [t for t in auth.acl_tags if t.startswith("dept:")]
+    if dept_tags and hasattr(ingest._metadata, "list_for_acl"):
+        rows = ingest._metadata.list_for_acl(auth.user_id, dept_tags)
+        from harag.api.ingest import _from_meta
+        docs = [_from_meta(r) for r in rows]
+    else:
+        docs = ingest.list_for_owner(auth.user_id)
     return [
-        DocumentStatus(document_id=r.document_id, status=r.status,
-                       filename=r.filename, n_chunks=r.n_chunks, error=r.error)
-        for r in ingest.list_for_owner(auth.user_id)
+        DocumentStatus(
+            document_id=r.document_id, status=r.status,
+            filename=r.filename, n_chunks=r.n_chunks, error=r.error)
+        for r in docs
     ]
 
 
 @router.get("/documents/{document_id}", response_model=DocumentStatus)
-async def document_status(document_id: str,
-                          auth: AuthContext = Depends(require_auth)):
+async def get_document(document_id: str,
+                       auth: AuthContext = Depends(require_auth)):
     from harag.api.deps import get_ingest
     ingest = get_ingest()
     rec = ingest.status(document_id, auth.user_id)
     if rec is None:
-        # 없음 또는 권한 없음 → 404(존재 누설 방지)
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
-    return DocumentStatus(document_id=rec.document_id, status=rec.status,
-                          filename=rec.filename, n_chunks=rec.n_chunks,
-                          error=rec.error)
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail="not found")
+    return DocumentStatus(
+        document_id=rec.document_id, status=rec.status,
+        filename=rec.filename, n_chunks=rec.n_chunks, error=rec.error)
 
 
 @router.delete("/documents/{document_id}", response_model=DeleteResponse)
 async def delete_document(document_id: str,
                           auth: AuthContext = Depends(require_auth)):
-    """본인 문서를 삭제(Qdrant 포인트 + 상태). 용량 한도 회수용."""
     from harag.api.deps import get_ingest
     ingest = get_ingest()
     result = ingest.delete(document_id, auth.user_id)
     if result == "not_found":
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail="not found")
     if result == "busy":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT,
-                            detail="문서가 아직 처리 중입니다. 완료 후 다시 시도하세요.")
-    return DeleteResponse(document_id=document_id, status="deleted",
-                          trace_id=current_trace_id())
+                            detail="document is still processing")
+    return DeleteResponse(
+        document_id=document_id, status="deleted",
+        trace_id=current_trace_id())

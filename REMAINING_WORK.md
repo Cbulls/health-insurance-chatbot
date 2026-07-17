@@ -64,7 +64,7 @@
 1. ~~**문서 삭제 API**~~ — `DELETE /v1/documents/{id}` + UI 삭제 버튼 (완료)
 2. ~~**하이브리드 검색 연결**~~ — dense+sparse RRF (신규 컬렉션). 기존 dense-only 컬렉션은 폴백 (완료)
 3. ~~**문서 상태 영속화**~~ — `MetadataStore` + SQLite 기본 / `DATABASE_URL` Postgres (완료)
-4. **인용 강화** — LLM `citations=[]`라 검색 청크를 출처로 노출. 구조화 인용(청크 ID)으로 강화.
+4. ~~**인용 강화**~~ — `Citation`에 chunk_id/struct_path/snippet, SSE JSON 배열 + 창구 UI 출처 패널 (완료)
 
 > 하이브리드를 Qdrant Cloud에서 쓰려면 sparse가 포함된 **새 컬렉션**이 필요합니다
 > (예: `QDRANT_COLLECTION=harag_hybrid_768`). 기존 dense-only 컬렉션은 dense로만 검색합니다.
@@ -73,20 +73,21 @@
 
 | 순위 | 항목 | 상태 |
 |------|------|------|
-| 1 | HWP/HWPX 파서 + 표 복원 PoC | `parsing/parser.py` 어댑터만 (**SPOF**) |
-| 2 | 큐 + IndexingWorker | 테스트용 라이브러리, 라이브 미배선 |
-| 3 | S3 원본 보존 | `object_store` 인터페이스만 |
-| 4 | 버전 태깅·원자 전환·GC | `indexing/versioning` 라이브러리, 라이브 미사용 |
-| 5 | 조직 ACL (부서/역할) | JWT 검증 배선됨, IdP 클레임·문서 태깅 정책 미완 |
-| 6 | GPU CrossEncoder 리랭커 | `HttpCrossEncoder`+`RERANKER_SERVER_URL` 배선됨. URL 없으면 Lexical 폴백. **서버·모델 기동은 사용자 구축** |
-| 7 | OCR (스캔 PDF) | 없음 |
-| 8 | 골드셋 CI 품질 게이트 | `eval/*` 스켈레톤, 루트 `.github` 없음 |
-| 9 | 부하테스트·SLO 동결 | `eval/perf` 자리표시자 |
+| 1 | HWP/HWPX 파서 + 표 복원 PoC | HWPX + **HWP5 B1 텍스트** + DOCX/DOC 변환 라이브. HWP 표 B3는 ADR·HWPX SOP 동결(2주 PoC 미달 시 정책) |
+| 2 | 큐 + IndexingWorker | **Redis Streams + `run_worker` LIVE**. 갭은 library `IndexingWorker`·object_store·versioning 패턴 배선(고도화 Phase 2) |
+| 3 | S3 원본 보존 | ObjectStore + MinIO compose profile (`OBJECT_STORE_*`) 라이브 배선 |
+| 4 | 버전 태깅·원자 전환·GC | 메타 `active_version` 증가 + `VersionedStore` 조율기 라이브 |
+| 5 | 조직 ACL (부서/역할) | JWT/OIDC + dept/role 태그 인제스트·검색 필터 |
+| 6 | GPU CrossEncoder 리랭커 | `HttpCrossEncoder`+`RERANKER_SERVER_URL` 배선. TEI compose profile 선택 |
+| 7 | OCR (스캔 PDF) | 엔진 없음. `docs/OCR_POLICY.md` go/no-go(스캔 비율 15%) |
+| 8 | 골드셋 CI 품질 게이트 | `eval/goldsets/domain_*` + `.github/workflows` + `harag.eval.run_quality_gate` |
+| 9 | 부하테스트·SLO 동결 | `eval/slo.yaml` + `eval/perf` 방법론 |
 
 ### P2 — 정리·위생 (선택)
 
 - 루트 한국어 스냅샷 폴더·zip 아카이브 (실행과 무관, 레포 비대화)
-- 프론트: JWT 모드일 때 Bearer 입력 UI (지금은 `X-Owner-Id`만)
+- ~~프론트: JWT Bearer 입력 UI~~ (완료 — `frontend/` 인증 패널)
+- 창구 UX: [`docs/COUNTER_UX.md`](docs/COUNTER_UX.md)
 
 ---
 
@@ -96,9 +97,13 @@
 |------|------|
 | **지금 바로 쓰기** | `.env` 유지, 텍스트 PDF 업로드, 쿼터·디스크 모니터링. 용량 부족 시 UI에서 문서 삭제 |
 | **사용자 구축** | 시크릿, (운영 시) PG·S3·큐·IdP, 골드셋, HWP면 HWPX 정책, 법무 |
-| **코드 다음 타석** | ① 인용 강화 ② HWP PoC ③ 큐/워커 ④ 질의 audit |
+| **코드 다음 타석** | 고도화 Phase 잔여(실문서 골드셋 라벨링·상용 OCR·K8s 실배포) |
 
-다음 구현 스프린트 후보:
+포맷 정책: [`docs/adr/ADR-HWP5.md`](docs/adr/ADR-HWP5.md), 창구: [`docs/COUNTER_UX.md`](docs/COUNTER_UX.md).  
+고도화: [`docs/SYSTEM_ADVANCEMENT.md`](docs/SYSTEM_ADVANCEMENT.md).  
+게이트: `PYTHONPATH=src python -m harag.eval.run_quality_gate` · `python scripts/poc_format_gate.py <files…>`
 
-- **「구조화 인용 + HWP PoC」** — 답변 품질·행정문서 포맷
-- **「질의 audit + 다중 인스턴스」** — 감사 로그·공유 DB 운영
+다음 운영 후보:
+
+- **실문서 골드셋 라벨링** — 창구 FAQ 상위 30질의로 v1 확장
+- **Postgres + MinIO 운영 프로파일** — `docker compose --profile ops up`

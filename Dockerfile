@@ -1,8 +1,12 @@
-# harag PDF RAG MVP — API 이미지
+# harag PDF RAG MVP — API/워커 이미지
 FROM python:3.12-slim
 
-# pdfplumber(pdfminer)용 최소 런타임. 빌드 캐시 최적화를 위해 의존성 먼저 설치.
+# pdfplumber + LibreOffice(.doc→docx 변환, ENABLE_DOC_CONVERT)
 WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      libreoffice-writer-nogui \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml requirements.txt ./
 COPY src ./src

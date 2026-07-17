@@ -3,58 +3,98 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>harag — PDF RAG 챗봇</title>
+  <title>harag — 건강보험·행정문서 안내</title>
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
   <div class="app">
-    <aside class="sidebar">
+    <aside class="sidebar" id="sidebar">
       <div class="brand">
         <div class="logo">harag</div>
-        <div class="tagline">한글 행정문서 RAG · PDF MVP</div>
+        <div class="tagline">건강보험·행정문서 안내 도우미</div>
+      </div>
+
+      <div class="auth-panel" id="authPanel">
+        <div class="auth-title">접속</div>
+        <div class="auth-mode" id="authModeLabel">데모 세션</div>
+        <div class="auth-demo" id="authDemo">
+          세션: <span id="ownerId"></span>
+        </div>
+        <label class="auth-label" for="jwtInput">JWT (기관 발급 토큰)</label>
+        <textarea id="jwtInput" class="auth-jwt" rows="2"
+                  placeholder="Bearer 토큰을 붙여넣으세요"></textarea>
+        <div class="auth-actions">
+          <button type="button" id="jwtSaveBtn" class="btn-secondary">토큰 저장</button>
+          <button type="button" id="jwtClearBtn" class="btn-ghost">지우기</button>
+        </div>
+        <div class="auth-status" id="authStatus"></div>
       </div>
 
       <div class="upload" id="dropzone">
-        <input type="file" id="fileInput" accept="application/pdf" hidden />
+        <input type="file" id="fileInput"
+               accept=".pdf,.hwpx,.docx,.hwp,.doc,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden />
         <div class="upload-inner">
           <div class="upload-icon">＋</div>
-          <div class="upload-text">PDF를 끌어다 놓거나<br /><b>클릭해서 업로드</b></div>
-          <div class="upload-hint">본인이 올린 문서만 검색됩니다</div>
+          <div class="upload-text">PDF·Word·한글 문서를 끌어다 놓거나<br /><b>클릭해서 업로드</b></div>
+          <div class="upload-hint">권장: PDF·HWPX·DOCX · HWP는 표 제한 · 스캔 PDF 불가</div>
+          <div class="upload-policy">한글 문서는 가능하면 HWPX로 변환 후 올리세요. 바이너리 HWP는 본문 검색만 안정적입니다.</div>
+          <div class="upload-busy" id="uploadBusy" hidden>업로드 중…</div>
         </div>
       </div>
 
       <div class="docs">
         <div class="docs-title">내 문서</div>
         <ul id="docList" class="doc-list"></ul>
+        <div class="docs-empty" id="docsEmpty">
+          문서 없음 — 텍스트 PDF·HWPX·DOCX를 권장합니다
+        </div>
       </div>
-
-      <div class="owner">세션 ID: <span id="ownerId"></span></div>
     </aside>
 
     <main class="chat">
       <header class="chat-header">
         <div class="chat-header-row">
+          <button type="button" id="menuBtn" class="menu-btn" aria-label="메뉴">☰</button>
           <h1>문서 기반 질의응답</h1>
           <button type="button" id="newChatBtn" class="new-chat-btn">새 대화</button>
         </div>
-        <p>업로드한 PDF의 내용에 근거해 출처와 함께 답합니다. 근거가 없으면 지어내지 않고 "모른다"고 답합니다.</p>
+        <p class="disclaimer">
+          문서 검색·요약 도구이며, 개별 사례의 법적 판단·확정 안내가 아닙니다.
+          스태프는 본 답변을 처분·승인 근거로 사용하지 마세요.
+          근거가 없으면 지어내지 않고 “모른다”고 답합니다.
+        </p>
+        <div class="capacity-banner" id="capacityBanner" hidden></div>
       </header>
 
       <div id="messages" class="messages">
         <div class="empty-state" id="emptyState">
-          <div class="empty-emoji">📄</div>
-          <p>왼쪽에서 PDF를 업로드한 뒤 질문을 입력하세요.</p>
-          <p class="empty-example">예: "출장비 한도는 얼마인가요?"</p>
+          <p class="empty-lead">왼쪽에서 문서를 올린 뒤 질문을 입력하세요.</p>
+          <p class="empty-example">예: “출장비 한도는 얼마인가요?”</p>
         </div>
       </div>
 
+      <aside class="cite-panel" id="citePanel" hidden>
+        <div class="cite-panel-head">
+          <strong>출처</strong>
+          <button type="button" id="citeCloseBtn" class="btn-ghost">닫기</button>
+        </div>
+        <div id="citePanelBody" class="cite-panel-body"></div>
+      </aside>
+
       <form id="composer" class="composer">
-        <textarea id="queryInput" rows="1" placeholder="질문을 입력하세요…"
-                  autocomplete="off"></textarea>
-        <button type="submit" id="sendBtn">보내기</button>
+        <p class="composer-hint" id="composerHint">
+          준비된 문서가 있으면 질문할 수 있습니다.
+        </p>
+        <div class="composer-row">
+          <textarea id="queryInput" rows="1" placeholder="질문을 입력하세요…"
+                    autocomplete="off" disabled></textarea>
+          <button type="button" id="stopBtn" class="btn-stop" hidden>중지</button>
+          <button type="submit" id="sendBtn" disabled>보내기</button>
+        </div>
       </form>
     </main>
   </div>
+  <div class="sidebar-backdrop" id="sidebarBackdrop" hidden></div>
 
   <script src="./app.js"></script>
 </body>

@@ -22,7 +22,7 @@ class AnswerResult:
 @dataclass
 class StreamEvent:
     kind: str          # "token" | "abstain" | "done" | "citations" | "error"
-    data: str
+    data: object       # str, 또는 citations일 때 list[dict]
 
     def to_sse(self) -> str:
         import json

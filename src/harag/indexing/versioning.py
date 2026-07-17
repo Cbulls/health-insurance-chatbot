@@ -54,8 +54,9 @@ class VersionedStore:
             if keep_version != active:
                 raise RuntimeError("gc keep_version must equal active version (safety)")
             for store in (self._dense, self._sparse):
-                for (d, v) in [k for k in store if k[0] == doc_id and v_ne(v, keep_version)]:
-                    del store[(d, v)]
+                for key in [k for k in store
+                            if k[0] == doc_id and k[1] != keep_version]:
+                    del store[key]
 
     def search_dense(self, doc_id: str) -> set[str]:
         """검색은 항상 활성 버전만 본다(C1)."""
