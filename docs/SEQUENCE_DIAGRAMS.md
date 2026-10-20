@@ -175,7 +175,8 @@ sequenceDiagram
 
 ## SD-04 근거 보강 (목표, 10일) — 코드 없음
 
-입력 → 코드 → 규칙 매핑 → 공공 API(KCD만) 또는 JSON 캐시 → LLM → 가드.  
+두 유형(평소 증상 / 잘 안 느껴지는 초기 신호)과 복수 선택은 **교수 요청**.  
+공공 API·JSON 캐시와 `입력 → 규칙(KCD) → Open API/캐시 → LLM` 순서는 **팀 설계**다.  
 NHIS 빅데이터 플랫폼은 그리지 않는다. 증상 문장은 API로 나가지 않는다.
 
 ```mermaid
@@ -191,7 +192,7 @@ sequenceDiagram
   participant LLM as GeminiLLM
   participant Guard as OutputGuard
 
-  User->>UI: 일반군 숨은신호 복수선택
+  User->>UI: 평소증상 초기신호 복수선택
   UI->>API: POST /v1/guidance
   API->>Guide: guide(codes)
   Guide->>PII: mask
