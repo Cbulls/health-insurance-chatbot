@@ -1,10 +1,10 @@
 # 시퀀스 다이어그램 — 인슈런스핏 (현재 구현)
 
-UML 2 시퀀스. **지금 돌아가는 코드 경로**만 그린다. persist 0·canary 집계는 TARGET 설계 목표이며 메시지에 넣지 않는다.
+UML 2 시퀀스. SD-01~03은 **지금 돌아가는 코드**. SD-04는 10일 목표(심평원·공단 Open API + JSON 캐시)이며 아직 코드에 없다.
 
-제품 주경로는 SD-01이다. 약관 적재(SD-02)와 문서 질의(SD-03)는 병행 탭이다.
+제품 주경로는 SD-01이다. 약관 적재(SD-02)와 문서 질의(SD-03)는 병행 탭이다. PPT 뒷단 1페이지는 SD-04를 쓴다.
 
-관련: [CURRENT_ARCHITECTURE.md](CURRENT_ARCHITECTURE.md), [TARGET_ARCHITECTURE.md](TARGET_ARCHITECTURE.md), [CLASS_DIAGRAM.md](CLASS_DIAGRAM.md).
+관련: [CURRENT_ARCHITECTURE.md](CURRENT_ARCHITECTURE.md), [TARGET_ARCHITECTURE.md](TARGET_ARCHITECTURE.md), [CLASS_DIAGRAM.md](CLASS_DIAGRAM.md), [PROFESSOR_FEEDBACK_OCT20.md](PROFESSOR_FEEDBACK_OCT20.md).
 
 ---
 
@@ -173,8 +173,48 @@ sequenceDiagram
 
 ---
 
+## SD-04 근거 보강 (목표, 10일) — 코드 없음
+
+입력 → 코드 → 규칙 매핑 → 공공 API(KCD만) 또는 JSON 캐시 → LLM → 가드.  
+NHIS 빅데이터 플랫폼은 그리지 않는다. 증상 문장은 API로 나가지 않는다.
+
+```mermaid
+sequenceDiagram
+  actor User
+  participant UI as sangtae.js
+  participant API as FastAPI
+  participant Guide as GuidanceService
+  participant PII as PiiMasker
+  participant Rules as RuleEngine
+  participant Cache as JsonCache
+  participant HIRA as HiraOpenAPI
+  participant LLM as GeminiLLM
+  participant Guard as OutputGuard
+
+  User->>UI: 일반군 숨은신호 복수선택
+  UI->>API: POST /v1/guidance
+  API->>Guide: guide(codes)
+  Guide->>PII: mask
+  PII-->>Guide: masked
+  Guide->>Rules: 질환KCD 보장유형
+  Rules-->>Guide: kcd coverages
+  alt Open API 성공
+    Guide->>HIRA: KCD만 조회
+    HIRA-->>Guide: 연령성별 빈도
+  else 실패 또는 지연
+    Guide->>Cache: 저장본 통계
+    Cache-->>Guide: stats
+  end
+  Guide->>LLM: 구조화 사실만
+  LLM-->>Guide: 문장
+  Guide->>Guard: guard_text
+  Guard-->>UI: 보험종류 참고통계 면책
+```
+
+---
+
 ## 그리지 않은 것
 
-창구 SSO, 컬렉션 API, 공유 문서함은 GitHub `main`에 있으나 **인슈런스핏 UI(`sangtae.js`) 밖**이라 이 세 장에 넣지 않았다. HWP/DOCX 파서는 SD-02 parse 단계에 포함될 수 있으나 제품 화면의 기본 동선은 PDF다.
+창구 SSO, 컬렉션 API, 공유 문서함은 GitHub `main`에 있으나 **인슈런스핏 UI(`sangtae.js`) 밖**이라 SD-01~03에 넣지 않았다. HWP/DOCX 파서는 SD-02 parse 단계에 포함될 수 있으나 제품 화면의 기본 동선은 PDF다.
 
-설계 목표(메시지에 없음): persist 0(저장·로그·외부 요청에 원문 없음), canary 집계, 관리자 큐레이션 공용 KB.
+NHIS 빅데이터 플랫폼(신청·심의 표본)은 10일 목표에 없다. persist 0 감사·canary 집계는 설계 목표이며 SD-04 메시지에 넣지 않는다.

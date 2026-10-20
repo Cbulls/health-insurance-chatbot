@@ -9,10 +9,11 @@
 읽을 순서:
 
 1. **[TARGET_ARCHITECTURE.md](TARGET_ARCHITECTURE.md)** — **지금 제품의 목표·현재 구조**. 교수님 피드백 이후 “상태 안내 + 약관 RAG 근거”.
-2. **[PROFESSOR_FEEDBACK.md](PROFESSOR_FEEDBACK.md)** §7–9 — 왜 이렇게 바꿨는지, 코드 갭.
+2. **[PROFESSOR_FEEDBACK.md](PROFESSOR_FEEDBACK.md)** §7–9 — 왜 이렇게 바꿨는지, 코드 갭.  
+   10월 면담(유형화·결과 UI·10일 우선순위): [PROFESSOR_FEEDBACK_OCT20.md](PROFESSOR_FEEDBACK_OCT20.md).
 3. **[TECH_STACK.md](TECH_STACK.md)** — 무엇을 쓰는지(구현 부품).
 4. **[README.md](../README.md)** — 한 줄 목적 + 실행.
-5. **[SEQUENCE_DIAGRAMS.md](SEQUENCE_DIAGRAMS.md)** — 상태 안내·적재·질의 UML 시퀀스.
+5. **[SEQUENCE_DIAGRAMS.md](SEQUENCE_DIAGRAMS.md)** — 상태 안내·적재·질의 UML 시퀀스. SD-04는 심평원·공단 Open API(캐시) 목표 흐름.
 6. **[CLASS_DIAGRAM.md](CLASS_DIAGRAM.md)** — Guidance + RAG 핵심 클래스.
 
 **[MASTER_DESIGN.md](../MASTER_DESIGN.md)** 와 `설계/harag_project/docs/` 는 **한글 행정문서 FAQ RAG**(HWP, GPU 임베딩, K8s, Postgres 기본)다. 인슈런스핏 발표용 아키텍처로 쓰면 안 된다. 약관 RAG 뒷단(파싱·청킹·Qdrant·abstain)만 그 자산의 수직 슬라이스다.
