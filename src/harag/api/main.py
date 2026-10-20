@@ -14,10 +14,14 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from harag.api.middleware import TraceMiddleware, SafeErrorMiddleware
-from harag.api import routes_query, routes_ingest, routes_auth, routes_collections
+from harag.api import (
+    routes_query, routes_ingest, routes_auth, routes_collections,
+    routes_guidance,
+)
 from harag.config.settings import get_settings
 
 logging.basicConfig(level=logging.INFO)
@@ -46,7 +50,10 @@ def _build_and_inject() -> None:
     from harag.retrieval.rewriter import QueryRewriter, ConversationStore
     from harag.api.pipeline import QueryPipelineImpl
     from harag.api.ingest import InProcessIngest
-    from harag.api.deps import set_query_pipeline, set_ingest, set_vector_store
+    from harag.api.deps import (
+        set_query_pipeline, set_ingest, set_vector_store, set_guidance,
+        set_conversation_store,
+    )
     from harag.storage.metadata_store import MetadataStore
     from harag.storage.redis_client import get_redis
     from harag.storage.redis_cache import DocStatusCache
@@ -210,6 +217,7 @@ def _build_and_inject() -> None:
                 "rewrite=Identity — LLM 키 없음. 멀티턴 지시어 해소 불가 "
                 "(리랭커로 복구 안 됨). LLM_API_KEY 또는 LLM_REWRITE_ENABLED=false")
     rewriter = QueryRewriter(rewrite_llm, conv_store)
+    set_conversation_store(conv_store)
 
     pipeline = QueryPipelineImpl(
         retriever=store, generator=generator,
@@ -231,6 +239,10 @@ def _build_and_inject() -> None:
     set_query_pipeline(pipeline)
     set_ingest(ingest)
     set_vector_store(store)
+    from harag.guidance.service import GuidanceService
+    from harag.llm.local_llm import LocalExtractiveLLM
+    guide_llm = None if isinstance(llm, LocalExtractiveLLM) else llm
+    set_guidance(GuidanceService(pipeline=pipeline, llm=guide_llm))
 
     hybrid_flag = getattr(store, "_hybrid", None)
     logger.info(
@@ -271,7 +283,7 @@ def _frontend_dir() -> Path | None:
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="harag — 한글 행정문서 RAG (PDF MVP)",
+    app = FastAPI(title="인슈런스핏 — 증상으로 실손 비교 안내",
                   version="0.1.0-mvp", lifespan=lifespan)
 
     # 미들웨어: 나중에 add된 것이 더 바깥. SafeError를 가장 바깥에.
@@ -291,6 +303,7 @@ def create_app() -> FastAPI:
     app.include_router(routes_ingest.router)
     app.include_router(routes_auth.router)
     app.include_router(routes_collections.router)
+    app.include_router(routes_guidance.router)
 
     @app.get("/health")
     async def health():
@@ -330,8 +343,22 @@ def create_app() -> FastAPI:
         return PlainTextResponse(
             prometheus_text(), media_type="text/plain; version=0.0.4")
 
-    # 프론트엔드 정적 서빙(있을 때만). API 라우트 뒤에 mount → /v1·/health 우선.
+    # GET / 를 StaticFiles보다 먼저 등록해 옛 index.html 캐시를 피한다.
     fe = _frontend_dir()
+
+    @app.get("/")
+    async def index_html():
+        if fe is None:
+            return {"error": "frontend missing"}
+        return FileResponse(
+            fe / "index.html",
+            media_type="text/html; charset=utf-8",
+            headers={
+                "Cache-Control": "no-store, no-cache, must-revalidate",
+                "Pragma": "no-cache",
+            },
+        )
+
     if fe is not None:
         app.mount("/", StaticFiles(directory=str(fe), html=True), name="frontend")
         logger.info("frontend mounted from %s", fe)

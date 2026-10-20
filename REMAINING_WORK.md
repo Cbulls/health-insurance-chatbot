@@ -7,6 +7,10 @@
 - **B**: 코드로 더 구현할 항목 (우선순위)
 - **C**: 한 줄 요약 · 다음 스프린트 후보
 
+**제품 목표 재정의(교수 피드백):** PDF 설명 챗봇이 아니라  
+「최소 수집 상태만으로 건강보험 **정보 제공·비교 안내**(규칙 기반 LLM, 프라이버시 주축)」.  
+상세: [docs/PROFESSOR_FEEDBACK.md](docs/PROFESSOR_FEEDBACK.md) · 목표 구조: [docs/TARGET_ARCHITECTURE.md](docs/TARGET_ARCHITECTURE.md).
+
 상세 엔터프라이즈 로드맵은
 [앞으로 해야 할 것들/PRODUCTION_ROADMAP.md](앞으로%20해야%20할%20것들/PRODUCTION_ROADMAP.md)를 본다.
 
@@ -65,6 +69,9 @@
 2. ~~**하이브리드 검색 연결**~~ — dense+sparse RRF (신규 컬렉션). 기존 dense-only 컬렉션은 폴백 (완료)
 3. ~~**문서 상태 영속화**~~ — `MetadataStore` + SQLite 기본 / `DATABASE_URL` Postgres (완료)
 4. ~~**인용 강화**~~ — `Citation`에 chunk_id/struct_path/snippet, SSE JSON 배열 + 창구 UI 출처 패널 (완료)
+5. ~~**PII 라이브 배선**~~ — 인제스트 청크 마스킹 + `POST /v1/assess`·`/v1/guidance` (완료).  
+   남은 것: 원본 보존 시간→0을 **감사 지표로 로그**하는 정책.
+6. ~~**상태 안내 MVP**~~ — 증상 5종 규칙 엔진 + 인슈런스핏 UI + 문서 질의 병행 (완료). KB 확대·골드셋은 후속.
 
 > 하이브리드를 Qdrant Cloud에서 쓰려면 sparse가 포함된 **새 컬렉션**이 필요합니다
 > (예: `QDRANT_COLLECTION=harag_hybrid_768`). 기존 dense-only 컬렉션은 dense로만 검색합니다.
@@ -97,7 +104,8 @@
 |------|------|
 | **지금 바로 쓰기** | `.env` 유지, 텍스트 PDF 업로드, 쿼터·디스크 모니터링. 용량 부족 시 UI에서 문서 삭제 |
 | **사용자 구축** | 시크릿, (운영 시) PG·S3·큐·IdP, 골드셋, HWP면 HWPX 정책, 법무 |
-| **코드 다음 타석** | 고도화 Phase 잔여(실문서 골드셋 라벨링·상용 OCR·K8s 실배포) |
+| **목표 재정의** | [PROFESSOR_FEEDBACK.md](docs/PROFESSOR_FEEDBACK.md) · [TARGET_ARCHITECTURE.md](docs/TARGET_ARCHITECTURE.md) |
+| **코드 다음 타석** | ① 원본 TTL=0 감사 로그 ② KB 확대·골드셋 ③ 실문서 라벨링·OCR·K8s |
 
 포맷 정책: [`docs/adr/ADR-HWP5.md`](docs/adr/ADR-HWP5.md), 창구: [`docs/COUNTER_UX.md`](docs/COUNTER_UX.md).  
 창구 제품 백로그(JTBD·P0–P2): [`docs/COUNTER_PRODUCT_BACKLOG.md`](docs/COUNTER_PRODUCT_BACKLOG.md).  
@@ -109,3 +117,4 @@
 - **창구 스프린트 A** — SSO · 공유 문서함 · 한도/장애 메시지 분리 ([`COUNTER_PRODUCT_BACKLOG.md`](docs/COUNTER_PRODUCT_BACKLOG.md) §5)
 - **실문서 골드셋 라벨링** — 창구 FAQ 상위 30질의로 v1 확장
 - **Postgres + MinIO 운영 프로파일** — `docker compose --profile ops up`
+- **TTL 감사 로그 + 안정성 지표** — 원문 미저장·가드 적중을 숫자로 남김

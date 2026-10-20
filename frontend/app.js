@@ -559,6 +559,8 @@ function errorLabel(err) {
   const e = err || "";
   if (e.startsWith("capacity_exceeded"))
     return "저장 공간 한도 — 기존 문서를 삭제하세요.";
+  if (e.startsWith("embed_rate_limited"))
+    return "임베딩 API 한도에 걸렸습니다. 1분 뒤 다시 올려 주세요.";
   if (e.startsWith("scan_pdf_no_ocr"))
     return "스캔본은 OCR 미지원 — 텍스트 PDF로 재업로드하세요.";
   if (e.startsWith("encrypted_pdf"))

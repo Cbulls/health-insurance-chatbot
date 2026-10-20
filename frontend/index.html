@@ -3,127 +3,106 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>harag — 건강보험·행정문서 안내</title>
-  <link rel="stylesheet" href="./styles.css" />
+  <meta http-equiv="Cache-Control" content="no-store" />
+  <title>인슈런스핏 — 증상으로 실손 비교 안내</title>
+  <link rel="stylesheet" href="/sangtae.css" />
 </head>
 <body>
-  <div class="app">
-    <aside class="sidebar" id="sidebar">
-      <div class="brand">
-        <div class="logo">harag</div>
-        <div class="tagline">건강보험·행정문서 안내 도우미</div>
+  <header class="top">
+    <div class="brand-block">
+      <div class="brand">인슈런스핏</div>
+      <p class="tag">식별자 없이, 증상으로 실손 보장 유형을 비교 안내합니다. 의료 진단이 아니며 특정 상품을 권유하지 않습니다.</p>
+    </div>
+    <div class="top-actions">
+      <span id="kbCount" class="kb-count">약관 0건</span>
+      <button type="button" id="policyToggle" class="btn-ghost">약관 올리기</button>
+      <button type="button" id="askToggle" class="btn-ghost">약관에 질문</button>
+    </div>
+  </header>
+
+  <details class="privacy">
+    <summary>입력은 서버 세션에 남기지 않습니다 (persist 0). 절차 보기</summary>
+    <ol>
+      <li>증상 칩 또는 짧은 문장만 받음</li>
+      <li>전화·주민번호 형식은 즉시 가림</li>
+      <li>서버 세션에 원문을 넣지 않음</li>
+      <li>검색·LLM에는 증상 코드와 보장 유형만 전달</li>
+      <li>종료 버튼으로 이 화면의 입력을 지움</li>
+    </ol>
+  </details>
+
+  <section id="policyPanel" class="policy-panel hidden">
+    <div class="upload" id="dropzone">
+      <input type="file" id="fileInput" accept="application/pdf" hidden />
+      <div class="upload-inner">
+        <div class="upload-text">실손·건강보험 설명서 PDF를 올리세요. 스캔본은 안 됩니다.</div>
+        <div class="upload-hint">클릭하거나 파일을 끌어다 놓기</div>
       </div>
+    </div>
+    <ul id="docList" class="doc-list"></ul>
+  </section>
 
-      <div class="auth-panel" id="authPanel">
-        <div class="auth-title">접속</div>
-        <div class="auth-mode" id="authModeLabel">데모 세션</div>
-        <div class="auth-demo" id="authDemo">
-          세션: <span id="ownerId"></span>
-        </div>
-        <div class="auth-actions auth-sso-row">
-          <button type="button" id="ssoLoginBtn" class="btn-secondary" hidden>
-            기관 계정으로 로그인
-          </button>
-          <button type="button" id="logoutBtn" class="btn-ghost" hidden>로그아웃</button>
-        </div>
-        <div class="auth-status" id="authStatus"></div>
-        <details class="auth-advanced" id="authAdvanced">
-          <summary>고급 · JWT 붙여넣기</summary>
-          <label class="auth-label" for="jwtInput">JWT (기관 발급 토큰)</label>
-          <textarea id="jwtInput" class="auth-jwt" rows="2"
-                    placeholder="Bearer 토큰을 붙여넣으세요"></textarea>
-          <div class="auth-actions">
-            <button type="button" id="jwtSaveBtn" class="btn-secondary">토큰 저장</button>
-            <button type="button" id="jwtClearBtn" class="btn-ghost">지우기</button>
-          </div>
-        </details>
+  <main id="interview">
+    <p class="step-label">1</p>
+    <h1>지금 어떤 증상인가요?</h1>
+    <p id="kbHint" class="kb-hint">약관을 올리면 증상에 맞는 근거 라벨을 붙입니다. 없어도 보장 유형 비교는 됩니다.</p>
+
+    <div class="symptom-grid" id="symptomChips">
+      <button type="button" class="symptom-btn" data-symptom="headache">두통</button>
+      <button type="button" class="symptom-btn" data-symptom="leg_cramp">다리 쥐</button>
+      <button type="button" class="symptom-btn" data-symptom="back_pain">요통</button>
+      <button type="button" class="symptom-btn" data-symptom="indigestion">소화불량</button>
+      <button type="button" class="symptom-btn" data-symptom="skin">피부 증상</button>
+    </div>
+
+    <label class="field-label" for="symptomInput">또는 한 줄로 적어 주세요</label>
+    <textarea id="symptomInput" rows="2" placeholder="예: 머리가 지끈거려요"></textarea>
+
+    <p class="step-label">2</p>
+    <h2>직업과 걱정되는 점 <span class="opt">(선택)</span></h2>
+    <div class="chip-row">
+      <span class="chip-label">직업군</span>
+      <button type="button" class="chip" data-occ="office">사무직</button>
+      <button type="button" class="chip" data-occ="service">서비스직</button>
+      <button type="button" class="chip" data-occ="other">기타</button>
+    </div>
+    <div class="chip-row">
+      <span class="chip-label">걱정되는 점</span>
+      <button type="button" class="chip" data-concern="outpatient">통원비</button>
+      <button type="button" class="chip" data-concern="inpatient">입원</button>
+      <button type="button" class="chip" data-concern="tests">검사</button>
+    </div>
+
+    <button type="button" id="assessBtn" class="primary-btn">상태 확인</button>
+
+    <div id="stateCard" class="card hidden">
+      <h2>이렇게 이해했습니다</h2>
+      <p id="cardPreview" class="muted"></p>
+      <ul id="cardFacts"></ul>
+      <button type="button" id="guideBtn" class="primary-btn">이 상태로 안내 받기</button>
+    </div>
+
+    <div id="guideResult" class="card hidden"></div>
+  </main>
+
+  <section id="askPane" class="ask-pane hidden">
+    <header class="ask-head">
+      <h1>약관에 질문</h1>
+      <button type="button" id="newChatBtn" class="btn-ghost">새 대화</button>
+      <button type="button" id="backInterview" class="btn-ghost">증상 안내로</button>
+    </header>
+    <p class="muted ask-copy">올린 약관에서만 답합니다. 근거가 없으면 지어내지 않습니다.</p>
+    <div id="messages" class="messages">
+      <div class="empty-state" id="emptyState">
+        <p>위에서 약관을 올린 뒤 질문하세요.</p>
       </div>
+    </div>
+    <form id="composer" class="composer">
+      <textarea id="queryInput" rows="1" placeholder="약관에서 궁금한 점을 적으세요" autocomplete="off"></textarea>
+      <button type="submit" id="sendBtn">보내기</button>
+    </form>
+  </section>
 
-      <div class="upload" id="dropzone">
-        <input type="file" id="fileInput"
-               accept=".pdf,.hwpx,.docx,.hwp,.doc,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden />
-        <div class="upload-inner">
-          <div class="upload-icon">＋</div>
-          <div class="upload-text">PDF·Word·한글 문서를 끌어다 놓거나<br /><b>클릭해서 업로드</b></div>
-          <div class="upload-hint">권장: PDF·HWPX·DOCX · HWP는 표 제한 · 스캔 PDF 불가</div>
-          <div class="upload-policy">한글 문서는 가능하면 HWPX로 변환 후 올리세요. 바이너리 HWP는 본문 검색만 안정적입니다.</div>
-          <label class="auth-label" for="uploadTarget">업로드 대상</label>
-          <select id="uploadTarget" class="upload-target">
-            <option value="personal">내 업로드</option>
-            <option value="shared" id="uploadTargetShared" hidden>공용 규정</option>
-          </select>
-          <div class="upload-busy" id="uploadBusy" hidden>업로드 중…</div>
-        </div>
-      </div>
-
-      <div class="docs">
-        <div class="docs-title-row">
-          <div class="docs-title">사내 지식 라이브러리</div>
-          <button type="button" id="createCollectionBtn" class="btn-ghost btn-tiny" hidden>
-            컬렉션+
-          </button>
-        </div>
-        <p class="docs-hint">관리자가 올린 법령·매뉴얼이 모든 질의에 함께 참조됩니다.</p>
-        <ul id="libraryList" class="doc-list collection-list"></ul>
-        <div class="docs-empty" id="libraryEmpty">
-          라이브러리 컬렉션 없음
-        </div>
-        <div class="docs-title docs-title-spaced">공용 규정</div>
-        <ul id="sharedDocList" class="doc-list"></ul>
-        <div class="docs-empty" id="sharedDocsEmpty">공용 규정 없음</div>
-        <div class="docs-title docs-title-spaced">내 업로드</div>
-        <ul id="docList" class="doc-list"></ul>
-        <div class="docs-empty" id="docsEmpty">
-          개인 문서 없음 — 텍스트 PDF·HWPX·DOCX를 권장합니다
-        </div>
-      </div>
-    </aside>
-
-    <main class="chat">
-      <header class="chat-header">
-        <div class="chat-header-row">
-          <button type="button" id="menuBtn" class="menu-btn" aria-label="메뉴">☰</button>
-          <h1>문서 기반 질의응답</h1>
-          <button type="button" id="newChatBtn" class="new-chat-btn">새 대화</button>
-        </div>
-        <p class="disclaimer">
-          문서 검색·요약 도구이며, 개별 사례의 법적 판단·확정 안내가 아닙니다.
-          스태프는 본 답변을 처분·승인 근거로 사용하지 마세요.
-          근거가 없으면 지어내지 않고 “모른다”고 답합니다.
-        </p>
-        <div class="capacity-banner" id="capacityBanner" hidden></div>
-      </header>
-
-      <div id="messages" class="messages">
-        <div class="empty-state" id="emptyState">
-          <p class="empty-lead">왼쪽에서 문서를 올린 뒤 질문을 입력하세요.</p>
-          <p class="empty-example">예: “출장비 한도는 얼마인가요?”</p>
-        </div>
-      </div>
-
-      <aside class="cite-panel" id="citePanel" hidden>
-        <div class="cite-panel-head">
-          <strong>출처</strong>
-          <button type="button" id="citeCloseBtn" class="btn-ghost">닫기</button>
-        </div>
-        <div id="citePanelBody" class="cite-panel-body"></div>
-      </aside>
-
-      <form id="composer" class="composer">
-        <p class="composer-hint" id="composerHint">
-          준비된 문서가 있으면 질문할 수 있습니다.
-        </p>
-        <div class="composer-row">
-          <textarea id="queryInput" rows="1" placeholder="질문을 입력하세요…"
-                    autocomplete="off" disabled></textarea>
-          <button type="button" id="stopBtn" class="btn-stop" hidden>중지</button>
-          <button type="submit" id="sendBtn" disabled>보내기</button>
-        </div>
-      </form>
-    </main>
-  </div>
-  <div class="sidebar-backdrop" id="sidebarBackdrop" hidden></div>
-
-  <script src="./app.js"></script>
+  <script src="/sangtae.js"></script>
 </body>
 </html>

@@ -11,8 +11,11 @@ import os
 from pathlib import Path
 from typing import Callable
 
+import httpx
+
 from harag.chunking.chunker import ChunkingContext
 from harag.contracts.boundaries import ContractViolation, verify_boundary2
+from harag.embedding.api_embedder import EmbeddingRateLimitError
 from harag.retrieval.qdrant_store import CapacityExceededError
 
 logger = logging.getLogger("harag.ingest")
@@ -190,6 +193,18 @@ class PdfIngestPipeline:
             self._fail(
                 document_id, owner, filename,
                 "capacity_exceeded (저장 공간 한도 — 기존 문서를 삭제하세요)")
+        except EmbeddingRateLimitError:
+            logger.warning("embedding rate limited for %s", document_id)
+            self._fail(document_id, owner, filename, "embed_rate_limited")
+        except httpx.HTTPStatusError as e:
+            code = e.response.status_code if e.response is not None else 0
+            logger.exception("ingest failed: %s", document_id)
+            if code == 429 or code >= 500:
+                self._fail(document_id, owner, filename, "embed_rate_limited")
+            else:
+                self._fail(
+                    document_id, owner, filename,
+                    f"internal_error: {type(e).__name__}")
         except Exception as e:  # noqa: BLE001
             logger.exception("ingest failed: %s", document_id)
             self._fail(document_id, owner, filename,

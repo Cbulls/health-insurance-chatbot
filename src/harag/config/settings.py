@@ -82,6 +82,10 @@ class Settings:
     # OpenAI /embeddings에 dimensions 파라미터 전달(차원 축소 → 저장량 절감).
     # OpenAI 외 호환 프로바이더는 미지원일 수 있어 기본 꺼짐.
     embedding_send_dimensions: bool
+    embedding_batch_size: int
+    # Gemini 무료 임베딩 TPM(3만/분)의 80%를 예산으로 페이싱.
+    embedding_tpm_budget: int
+    embedding_max_retries: int
 
     # ── LLM ──
     llm_provider: str              # "openai" | "local"
@@ -244,6 +248,9 @@ def get_settings() -> Settings:
         embedding_model=_get("EMBEDDING_MODEL", "text-embedding-3-small"),
         embedding_dim=emb_dim,
         embedding_send_dimensions=_get_bool("EMBEDDING_SEND_DIMENSIONS", False),
+        embedding_batch_size=_get_int("EMBEDDING_BATCH_SIZE", 4),
+        embedding_tpm_budget=_get_int("EMBEDDING_TPM_BUDGET", 24000),
+        embedding_max_retries=_get_int("EMBEDDING_MAX_RETRIES", 8),
         llm_provider=llm_provider,
         llm_api_base=_get("LLM_API_BASE", "https://api.openai.com/v1"),
         llm_api_key=llm_key,

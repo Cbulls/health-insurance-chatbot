@@ -30,6 +30,9 @@ postgres = ["psycopg[binary]>=3.1"]
 korean = ["kiwipiepy>=0.18"]  # 형태소 sparse 토크나이저(없으면 어절 폴백)
 s3 = ["boto3>=1.34"]  # ObjectStore MinIO/S3
 
+[tool.setuptools.package-data]
+harag = ["guidance/kb.yaml"]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 

@@ -1,0 +1,97 @@
+{
+  "coverages": {
+    "outpatient": {
+      "label": "실손 통원",
+      "summary": "병원 외래 진료비·약제비를 실손으로 보전하는 보장 유형"
+    },
+    "inpatient": {
+      "label": "실손 입원",
+      "summary": "입원 치료에 따른 병원비를 실손으로 보전하는 보장 유형"
+    },
+    "tests": {
+      "label": "실손 검사",
+      "summary": "영상·혈액 등 검사비를 실손으로 보전하는 보장 유형"
+    },
+    "injury": {
+      "label": "상해 관련 실손",
+      "summary": "업무·일상 중 근골격 부담과 연관될 수 있는 상해·통원 보장 유형"
+    }
+  },
+  "symptoms": {
+    "headache": {
+      "label": "두통",
+      "aliases": ["두통", "머리가 아", "머리 아", "골이 울", "편두통", "머리가 지끈"],
+      "areas": [
+        {
+          "label": "신경과 관련 가능 영역",
+          "source": "질병관리청 국가건강정보포털 — 두통(개요)",
+          "confidence": 0.72
+        }
+      ],
+      "coverages": ["outpatient", "tests"],
+      "occupation_boost": {"office": ["outpatient"]},
+      "concern_boost": {"outpatient": ["outpatient"], "tests": ["tests"], "inpatient": ["inpatient"]}
+    },
+    "leg_cramp": {
+      "label": "하지 경련",
+      "aliases": ["다리에 쥐", "다리 쥐", "종아리 쥐", "하지 경련", "다리 경련", "근육 경련"],
+      "areas": [
+        {
+          "label": "근골격·순환 관련 가능 영역",
+          "source": "질병관리청 국가건강정보포털 — 근육경련(개요)",
+          "confidence": 0.68
+        },
+        {
+          "label": "내분비(갑상선 등) 관련 가능 영역 — 가설, 낮은 신뢰",
+          "source": "공공 의료정보 일반 안내 — 근육경련의 여러 관련 요인(전해질·순환·내분비). 확진 아님",
+          "confidence": 0.25
+        }
+      ],
+      "coverages": ["outpatient", "tests", "injury"],
+      "occupation_boost": {"service": ["injury", "outpatient"]},
+      "concern_boost": {"outpatient": ["outpatient"], "tests": ["tests"], "inpatient": ["inpatient"]}
+    },
+    "back_pain": {
+      "label": "요통",
+      "aliases": ["요통", "허리 아", "허리가 아", "허리 통증", "허리 디스크"],
+      "areas": [
+        {
+          "label": "정형외과·재활 관련 가능 영역",
+          "source": "질병관리청 국가건강정보포털 — 요통(개요)",
+          "confidence": 0.74
+        }
+      ],
+      "coverages": ["outpatient", "inpatient", "injury"],
+      "occupation_boost": {"service": ["injury"], "office": ["outpatient"]},
+      "concern_boost": {"outpatient": ["outpatient"], "inpatient": ["inpatient"], "tests": ["tests"]}
+    },
+    "indigestion": {
+      "label": "소화불량",
+      "aliases": ["소화 안", "소화불량", "속 쓰", "체했", "배가 더부룩", "위장"],
+      "areas": [
+        {
+          "label": "소화기내과 관련 가능 영역",
+          "source": "질병관리청 국가건강정보포털 — 소화불량(개요)",
+          "confidence": 0.7
+        }
+      ],
+      "coverages": ["outpatient", "tests"],
+      "occupation_boost": {},
+      "concern_boost": {"outpatient": ["outpatient"], "tests": ["tests"], "inpatient": ["inpatient"]}
+    },
+    "skin": {
+      "label": "피부 증상",
+      "aliases": ["피부", "두드러기", "가려움", "발진", "습진", "피부가 가렵"],
+      "areas": [
+        {
+          "label": "피부과 관련 가능 영역",
+          "source": "질병관리청 국가건강정보포털 — 두드러기·피부염(개요)",
+          "confidence": 0.7
+        }
+      ],
+      "coverages": ["outpatient", "tests"],
+      "occupation_boost": {"service": ["outpatient"]},
+      "concern_boost": {"outpatient": ["outpatient"], "tests": ["tests"], "inpatient": ["inpatient"]}
+    }
+  }
+}

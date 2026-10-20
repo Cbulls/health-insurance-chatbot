@@ -50,6 +50,8 @@ _query_pipeline: Optional[QueryPipeline] = None
 _ingest = None  # InProcessIngest(MVP 인프로세스 수집 — hot path 유지)
 _ingest_queue: Optional[IngestQueue] = None  # 워커 배선용 큐(라이브러리 경로)
 _vector_store = None  # QdrantVectorStore(관측용 — /health 용량 노출)
+_guidance = None  # GuidanceService(상태 기반 보험 안내)
+_conversation_store = None  # ConversationStore(문서 질의 이력 — 안내 원문 아님)
 
 
 def set_query_pipeline(p: QueryPipeline) -> None:
@@ -93,3 +95,23 @@ def get_ingest_queue() -> IngestQueue:
     if _ingest_queue is None:
         raise RuntimeError("IngestQueue 미주입 — 워커/큐 배선 필요")
     return _ingest_queue
+
+
+def set_guidance(service) -> None:
+    global _guidance
+    _guidance = service
+
+
+def get_guidance():
+    if _guidance is None:
+        raise RuntimeError("Guidance 서비스 미주입")
+    return _guidance
+
+
+def set_conversation_store(store) -> None:
+    global _conversation_store
+    _conversation_store = store
+
+
+def get_conversation_store_or_none():
+    return _conversation_store

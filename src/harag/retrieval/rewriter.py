@@ -85,6 +85,13 @@ class ConversationStore:
             self._store.move_to_end(conversation_id)  # 읽기도 최근 사용으로
             return list(hist)
 
+    def clear(self, conversation_id: str) -> bool:
+        """해당 대화 질의 이력을 제거한다. 약관 벡터는 건드리지 않는다."""
+        if not conversation_id:
+            return False
+        with self._lock:
+            return self._store.pop(conversation_id, None) is not None
+
 
 class QueryRewriter:
     def __init__(self, llm: RewriteLLM, store):

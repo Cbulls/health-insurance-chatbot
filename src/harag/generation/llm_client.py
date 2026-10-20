@@ -5,13 +5,14 @@ LLM은 외부 API. rate limit·비용·타임아웃이 관심사.
 실제 HTTP 호출(transport)은 주입식 분리 → 방어 로직을 네트워크 없이 검증.
 
 방어 4종:
-  - rate limit(429) → 지수 백오프 재시도
+  - rate limit(429)·일시 5xx → 지수+지터 백오프 재시도(첫 토큰 전)
   - 비용 상한 → 호출 전 예상 토큰으로 차단(폭주 방어)
-  - 타임아웃 → LLMTimeout
+  - 타임아웃 → LLMTimeout(재시도 없음)
   - 영구 실패 → LLMError(상위가 graceful degradation)
 """
 from __future__ import annotations
 
+import random
 import time
 from typing import Iterator, Protocol
 
@@ -100,23 +101,34 @@ class ExternalLLMClient:
             "context_ids": context_ids,
         }
 
+    def _backoff_sleep(self, attempt: int) -> None:
+        """지수 백오프 + 소량 지터(동시 재시도 폭주 완화)."""
+        base = self._base_backoff * (2 ** attempt)
+        time.sleep(base + random.uniform(0, min(0.25, base)))
+
+    def _retryable_llm_error(self, exc: LLMError) -> bool:
+        """CostLimit·Timeout은 재시도해도 이득 없음. 429·5xx성 LLMError만."""
+        if isinstance(exc, (CostLimitError, LLMTimeout)):
+            return False
+        return True  # RateLimitError 포함 일반 LLMError(503 등)
+
     def complete(self, query: str, context_texts: list[str],
                  context_ids: list[str]) -> tuple[str, list[str]]:
         payload = self._build_payload(query, context_texts, context_ids)
 
-        # ── rate limit 백오프 재시도 ──
+        # ── 429/5xx 백오프 재시도 ──
         attempt = 0
         while True:
             try:
                 resp = self._transport.post(payload)
                 return self._parse(resp)
-            except RateLimitError:
-                if attempt >= self._max_retries:
-                    raise LLMError("rate limit: 재시도 소진")
-                time.sleep(self._base_backoff * (2 ** attempt))
+            except LLMError as e:
+                if not self._retryable_llm_error(e) or attempt >= self._max_retries:
+                    if isinstance(e, RateLimitError):
+                        raise LLMError("rate limit: 재시도 소진") from e
+                    raise
+                self._backoff_sleep(attempt)
                 attempt += 1
-            except LLMTimeout:
-                raise
 
     def supports_streaming(self) -> bool:
         return callable(getattr(self._transport, "post_stream", None))
@@ -136,13 +148,14 @@ class ExternalLLMClient:
                     emitted = True
                     yield piece
                 return
-            except RateLimitError:
-                if emitted or attempt >= self._max_retries:
-                    raise LLMError("rate limit: 재시도 소진")
-                time.sleep(self._base_backoff * (2 ** attempt))
+            except LLMError as e:
+                if (emitted or not self._retryable_llm_error(e)
+                        or attempt >= self._max_retries):
+                    if isinstance(e, RateLimitError) and not emitted:
+                        raise LLMError("rate limit: 재시도 소진") from e
+                    raise
+                self._backoff_sleep(attempt)
                 attempt += 1
-            except LLMTimeout:
-                raise
 
     def _parse(self, resp: dict) -> tuple[str, list[str]]:
         answer = resp.get("answer")

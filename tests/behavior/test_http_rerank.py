@@ -62,6 +62,8 @@ def test_resolve_defaults_http_vs_lexical():
     base = dict(
         embedding_provider="local", embedding_api_base="", embedding_api_key="",
         embedding_model="x", embedding_dim=8, embedding_send_dimensions=False,
+        embedding_batch_size=4, embedding_tpm_budget=24000,
+        embedding_max_retries=8,
         llm_provider="local", llm_api_base="", llm_api_key="", llm_model="x",
         llm_rewrite_enabled=True, llm_rewrite_model="",
         llm_max_cost_per_query_usd=0.05, llm_cost_per_1k_tokens=0.01,
@@ -72,6 +74,7 @@ def test_resolve_defaults_http_vs_lexical():
         qdrant_upsert_batch_size=64, hybrid_prefetch_mult=2,
         qdrant_count_cache_ttl_s=5.0,
         top_k=20, min_score=0.15,
+        rerank_llm_enabled=False, rerank_llm_model="",
         rerank_enabled=True, reranker_server_url="",
         rerank_top_n=5, rerank_timeout_ms=1000,
         rerank_min_score=-1.0, retrieval_blend=-1.0,

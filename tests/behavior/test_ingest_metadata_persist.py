@@ -8,7 +8,10 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+import httpx
+
 from harag.api.ingest import InProcessIngest
+from harag.embedding.api_embedder import EmbeddingRateLimitError
 from harag.schemas.chunk import ChunkType
 from harag.storage.metadata_store import MetadataStore
 
@@ -80,3 +83,45 @@ def test_ING_META02_delete_removes_from_db():
     assert ingest.delete("doc1", "u1") == "deleted"
     assert ingest.status("doc1", "u1") is None
     assert ingest.list_for_owner("u1") == []
+
+
+class _RateLimitedEmbedder:
+    model_id = "fake-model"
+
+    def embed(self, chunks):
+        raise EmbeddingRateLimitError("429")
+
+
+class _Http429Embedder:
+    model_id = "fake-model"
+
+    def embed(self, chunks):
+        req = httpx.Request("POST", "https://fake.local/v1/embeddings")
+        resp = httpx.Response(429, request=req)
+        raise httpx.HTTPStatusError("429", request=req, response=resp)
+
+
+def test_ING_META03_embed_rate_limited_is_recorded():
+    ingest = InProcessIngest(
+        parser=FakeParser(), chunker=FakeChunker(),
+        embedder=_RateLimitedEmbedder(), store=FakeStore(),
+        metadata=MetadataStore(dsn="sqlite:///:memory:"))
+    ingest.register("doc1", "a.pdf", "u1")
+    ingest.process("doc1", b"%PDF", "a.pdf", "u1")
+    rec = ingest.status("doc1", "u1")
+    assert rec is not None
+    assert rec.status == "failed"
+    assert rec.error == "embed_rate_limited"
+
+
+def test_ING_META04_http_429_is_embed_rate_limited():
+    ingest = InProcessIngest(
+        parser=FakeParser(), chunker=FakeChunker(),
+        embedder=_Http429Embedder(), store=FakeStore(),
+        metadata=MetadataStore(dsn="sqlite:///:memory:"))
+    ingest.register("doc1", "a.pdf", "u1")
+    ingest.process("doc1", b"%PDF", "a.pdf", "u1")
+    rec = ingest.status("doc1", "u1")
+    assert rec is not None
+    assert rec.status == "failed"
+    assert rec.error == "embed_rate_limited"

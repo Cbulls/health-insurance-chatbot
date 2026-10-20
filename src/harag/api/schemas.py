@@ -69,3 +69,72 @@ class CollectionOut(BaseModel):
 
 class CollectionDetail(CollectionOut):
     documents: list[DocumentStatus] = Field(default_factory=list)
+
+
+class AssessRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=2000)
+    occupation: Optional[str] = None  # service | office | other
+    concern: Optional[str] = None     # outpatient | inpatient | tests
+
+
+class SymptomItem(BaseModel):
+    code: str
+    label: str
+
+
+class AssessResponse(BaseModel):
+    masked_preview: str
+    pii_kinds: dict[str, int] = Field(default_factory=dict)
+    symptoms: list[SymptomItem] = Field(default_factory=list)
+    occupation: Optional[str] = None
+    occupation_label: Optional[str] = None
+    concern: Optional[str] = None
+    concern_label: Optional[str] = None
+    abstained: bool = False
+    abstain_reason: Optional[str] = None
+    trace_id: str = ""
+
+
+class GuidanceRequest(BaseModel):
+    text: str = Field(default="", max_length=2000)
+    occupation: Optional[str] = None
+    concern: Optional[str] = None
+    symptoms: list[str] = Field(default_factory=list)
+
+
+class PurgeRequest(BaseModel):
+    conversation_id: Optional[str] = None
+
+
+class PurgeResponse(BaseModel):
+    raw_persisted: bool = False
+    conversation_cleared: bool = False
+    trace_id: str = ""
+
+
+class AreaItem(BaseModel):
+    label: str
+    source: str = ""
+    confidence: float = 0.0
+
+
+class CoverageItem(BaseModel):
+    code: str
+    label: str
+    summary: str = ""
+    score: float = 0.0
+    why: list[str] = Field(default_factory=list)
+
+
+class GuidanceResponse(BaseModel):
+    profile: dict = Field(default_factory=dict)
+    areas: list[AreaItem] = Field(default_factory=list)
+    coverages: list[CoverageItem] = Field(default_factory=list)
+    explanation: str = ""
+    citations: list[str] = Field(default_factory=list)
+    guard_flags: list[str] = Field(default_factory=list)
+    abstained: bool = False
+    abstain_reason: Optional[str] = None
+    raw_stored: bool = False
+    disclaimer: str = ""
+    trace_id: str = ""

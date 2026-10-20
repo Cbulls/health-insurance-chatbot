@@ -10,12 +10,21 @@
 """
 from __future__ import annotations
 
+import logging
 import math
 import re
+import time
 
 import httpx
 
 from harag.config.settings import Settings
+
+logger = logging.getLogger("harag.embed")
+
+
+class EmbeddingRateLimitError(Exception):
+    """임베딩 API 429/5xx가 재시도 후에도 남음."""
+
 
 _TOKEN = re.compile(r"[0-9A-Za-z가-힣]+")
 
@@ -102,12 +111,41 @@ def hash_str(s: str) -> int:
     return int.from_bytes(hashlib.blake2b(s.encode("utf-8"), digest_size=8).digest(), "big")
 
 
+def _approx_tokens(text: str) -> int:
+    """청커와 같은 추정(한글 약관 기준 len//2)."""
+    return max(1, len(text) // 2)
+
+
+def _iter_token_batches(texts: list[str], batch_size: int, max_tokens: int):
+    """개수·추정 토큰 상한으로 배치를 자른다. 한 청크가 상한을 넘으면 단독 전송."""
+    batch: list[str] = []
+    used = 0
+    for text in texts:
+        tok = _approx_tokens(text)
+        if batch and (len(batch) >= batch_size or used + tok > max_tokens):
+            yield batch
+            batch = []
+            used = 0
+        batch.append(text)
+        used += tok
+    if batch:
+        yield batch
+
+
+def _tpm_pause(tokens: int, tpm_budget: int) -> float:
+    if tpm_budget <= 0 or tokens <= 0:
+        return 0.0
+    return tokens / tpm_budget * 60.0
+
+
 class ApiEmbeddingModel:
     """OpenAI 호환 임베딩 API 어댑터."""
 
     def __init__(self, api_base: str, api_key: str, model: str, dim: int,
-                 timeout: float = 30.0, batch_size: int = 64,
-                 send_dimensions: bool = False):
+                 timeout: float = 30.0, batch_size: int = 4,
+                 send_dimensions: bool = False, max_retries: int = 8,
+                 tpm_budget: int = 24000, max_tokens_per_request: int = 8000,
+                 sleep=time.sleep):
         self._base = api_base.rstrip("/")
         self._key = api_key
         self.model_id = model
@@ -117,6 +155,10 @@ class ApiEmbeddingModel:
         # OpenAI text-embedding-3-*는 dimensions로 차원 축소 지원(저장량 절감).
         # 호환 프로바이더가 미지원일 수 있어 옵트인.
         self._send_dimensions = send_dimensions
+        self._max_retries = max(0, max_retries)
+        self._tpm_budget = max(1, tpm_budget)
+        self._max_tokens_per_request = max(1, max_tokens_per_request)
+        self._sleep = sleep
         # 커넥션 재사용(keep-alive) — 문서마다 새 TCP/TLS 핸드셰이크 방지.
         self._client = httpx.Client(
             base_url=self._base,
@@ -127,32 +169,70 @@ class ApiEmbeddingModel:
     def encode(self, texts: list[str]) -> list[list[float]]:
         if not texts:
             return []
-        # 전체 텍스트를 한 요청에 넣으면 대형 문서에서 타임아웃/페이로드 한계로
-        # 실패한다. batch_size로 나눠 호출하고 입력 순서를 보존해 이어붙인다.
+        # 약관 PDF는 청크가 많아 Gemini 무료 TPM(3만/분)을 한 분에 넘긴다.
+        # 배치를 토큰 상한으로 자르고, 전송 후 예산 비율만큼 쉰다.
         out: list[list[float]] = []
-        for start in range(0, len(texts), self._batch_size):
-            batch = texts[start:start + self._batch_size]
+        for batch in _iter_token_batches(
+                texts, self._batch_size, self._max_tokens_per_request):
             out.extend(self._encode_batch(batch))
+            pause = _tpm_pause(
+                sum(_approx_tokens(t) for t in batch), self._tpm_budget)
+            if pause:
+                self._sleep(pause)
         return out
 
     def _encode_batch(self, batch: list[str]) -> list[list[float]]:
         body = {"model": self.model_id, "input": batch}
         if self._send_dimensions:
             body["dimensions"] = self.dim
-        resp = self._client.post("/embeddings", json=body)
-        resp.raise_for_status()
+        last_err: Exception | None = None
+        for attempt in range(self._max_retries + 1):
+            resp = self._client.post("/embeddings", json=body)
+            if resp.status_code == 200:
+                return self._parse_vectors(resp, len(batch))
+            if resp.status_code == 429 or resp.status_code >= 500:
+                last_err = httpx.HTTPStatusError(
+                    f"{resp.status_code} embedding",
+                    request=resp.request, response=resp)
+                wait = _retry_wait(resp, attempt)
+                logger.warning(
+                    "embedding %s, retry %d/%d in %.1fs",
+                    resp.status_code, attempt + 1, self._max_retries, wait)
+                if attempt < self._max_retries:
+                    self._sleep(wait)
+                    continue
+                raise EmbeddingRateLimitError(str(resp.status_code)) from last_err
+            resp.raise_for_status()
+        raise EmbeddingRateLimitError("exhausted") from last_err
+
+    def _parse_vectors(self, resp: httpx.Response, n: int) -> list[list[float]]:
         data = resp.json()["data"]
         # index 순서 보장. 단 일부 호환 프로바이더(Gemini 등)는 index 필드를
         # 생략한다 — 그 경우 응답이 입력 순서라고 보고 정렬을 건너뛴다.
         if all(d.get("index") is not None for d in data):
             data.sort(key=lambda d: d["index"])
         vecs = [d["embedding"] for d in data]
+        if len(vecs) != n:
+            raise ValueError(f"embedding count mismatch: got {len(vecs)}, expected {n}")
         for v in vecs:
             if len(v) != self.dim:
                 raise ValueError(
                     f"embedding dim mismatch: got {len(v)}, expected {self.dim} "
                     f"(EMBEDDING_DIM 설정 또는 컬렉션 재생성 필요)")
         return vecs
+
+
+def _retry_wait(resp: httpx.Response, attempt: int) -> float:
+    """429는 TPM 1분 창을 넘기도록 길게, 5xx는 짧은 지수 백오프."""
+    if resp.status_code >= 500:
+        return min(1.5 * (2 ** attempt), 16.0)
+    raw = resp.headers.get("Retry-After") or resp.headers.get("retry-after")
+    if raw:
+        try:
+            return min(float(raw), 70.0)
+        except ValueError:
+            pass
+    return max(65.0, min(1.5 * (2 ** attempt), 70.0))
 
 
 def build_embedding_model(settings: Settings):
@@ -164,5 +244,8 @@ def build_embedding_model(settings: Settings):
             model=settings.embedding_model,
             dim=settings.embedding_dim,
             send_dimensions=settings.embedding_send_dimensions,
+            batch_size=settings.embedding_batch_size,
+            max_retries=settings.embedding_max_retries,
+            tpm_budget=settings.embedding_tpm_budget,
         )
     return LocalHashEmbeddingModel(dim=settings.embedding_dim)
