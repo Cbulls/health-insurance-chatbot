@@ -10,6 +10,7 @@
 | 항목 | 위치 |
 |------|------|
 | `LLM_API_KEY` / `EMBEDDING_API_KEY` | Secret Manager / K8s Secret |
+| `HIRA_SERVICE_KEY` | 공공데이터포털 Decoding 키. git에 올리지 않음 |
 | `AUTH_JWT_SECRET` 또는 OIDC | IdP + `AUTH_OIDC_JWKS_URL` |
 | `OBJECT_STORE_*` | MinIO/S3 IAM |
 | `DATABASE_URL` | Postgres 시크릿 |

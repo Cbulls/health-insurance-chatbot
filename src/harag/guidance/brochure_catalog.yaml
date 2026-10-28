@@ -1,0 +1,62 @@
+{
+  "뉴라이프건강보험_상품요약서.pdf": {
+    "display_name": "뉴라이프건강보험",
+    "insurer": "KB손해보험",
+    "source_url": "https://www.kbinsure.co.kr/CG802030002.ec",
+    "product_line": "health",
+    "doc_kind": "summary",
+    "cost_nature": "mixed",
+    "summary": "KB손해보험 뉴라이프건강보험 상품요약서입니다. 상해·질병 입원일당, 암·뇌·심장 진단비와 실손 입·통원 특약을 안내합니다.",
+    "coverage_codes": ["outpatient", "inpatient", "tests", "injury"]
+  },
+  "삼성_New플러스원_건강보험2608_상품요약서.pdf": {
+    "display_name": "삼성 New플러스원 건강보험",
+    "insurer": "삼성생명",
+    "source_url": "https://www.samsunglife.com/individual/products/disclosure/sales/PDO-PRPRI010110M",
+    "product_line": "health",
+    "doc_kind": "summary",
+    "cost_nature": "lump_sum",
+    "summary": "삼성생명 New플러스원·플래티넘 플러스원 건강보험(2608) 상품요약서입니다. 주계약은 사망을 보장하고 특약으로 진단·수술·입원간병과 플러스시니어·치아 플랜을 안내합니다. 건강고지·일반고지·간편고지 형과 저해약환급금형이 있습니다.",
+    "coverage_codes": ["outpatient", "inpatient", "injury"]
+  },
+  "메리츠_통합간편건강보험2607_상품요약서.pdf": {
+    "display_name": "메리츠 통합간편건강보험",
+    "insurer": "메리츠화재",
+    "source_url": "",
+    "product_line": "health",
+    "doc_kind": "summary",
+    "cost_nature": "lump_sum",
+    "summary": "메리츠화재 무배당 통합간편건강보험(연만기형)2607 상품요약서입니다. 통합간편심사형으로 질병·상해 진단비·수술비·입원일당 특약을 안내합니다. 다수 담보가 갱신형이며 면책·감액 기간이 있습니다.",
+    "coverage_codes": ["outpatient", "inpatient", "injury"]
+  },
+  "한화_311간편건강보험2604_상품요약서.pdf": {
+    "display_name": "한화 311 간편건강보험",
+    "insurer": "한화손해보험",
+    "source_url": "",
+    "product_line": "health",
+    "doc_kind": "summary",
+    "cost_nature": "lump_sum",
+    "summary": "한화손해보험 311 간편건강보험(연만기 갱신형) 무배당2604 상품요약서입니다. 311간편고지·일반고지와 해약환급금미지급형이 있으며, 암·질병·상해 진단비·수술비·입·통원 특약을 안내합니다. 다수 담보가 갱신형이며 면책·감액 기간이 있습니다.",
+    "coverage_codes": ["outpatient", "inpatient", "injury"]
+  },
+  "ABL_우리WON건강N더보장종합보험2601_상품요약서.pdf": {
+    "display_name": "우리WON건강N더보장종합보험",
+    "insurer": "ABL생명",
+    "source_url": "",
+    "product_line": "health",
+    "doc_kind": "summary",
+    "cost_nature": "lump_sum",
+    "summary": "ABL생명 무배당 우리WON건강N더보장종합보험(갱신형)2601 상품요약서입니다. 주계약은 재해사망을 중심으로 암·뇌·심장·입원·수술 특약을 선택 설계합니다. 간편심사·일반심사와 건강등급 할인이 있으며 다수 담보가 갱신형입니다.",
+    "coverage_codes": ["outpatient", "inpatient", "injury"]
+  },
+  "흥국_3N5N플러스간편건강보험_해약환급금미지급형V2_상품요약서.pdf": {
+    "display_name": "흥국 3.N.5.N플러스간편건강보험",
+    "insurer": "흥국생명",
+    "source_url": "",
+    "product_line": "health",
+    "doc_kind": "summary",
+    "cost_nature": "lump_sum",
+    "summary": "흥국생명 무배당 3.N.5.N플러스간편건강보험(해약환급금미지급형V2) 상품요약서입니다. 간편심사로 진단·입원·수술·장해 특약을 선택 설계하며, 3.6.5.1·3.8.5.5 간편심사형으로도 판매됩니다. 납입기간 중 해약환급금은 미지급입니다.",
+    "coverage_codes": ["outpatient", "inpatient", "injury"]
+  }
+}

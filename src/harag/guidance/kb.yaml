@@ -20,7 +20,16 @@
   "symptoms": {
     "headache": {
       "label": "두통",
-      "aliases": ["두통", "머리가 아", "머리 아", "골이 울", "편두통", "머리가 지끈"],
+      "type": "usual",
+      "body_area": "head",
+      "aliases": [
+        "두통",
+        "머리가 아",
+        "머리 아",
+        "골이 울",
+        "편두통",
+        "머리가 지끈"
+      ],
       "areas": [
         {
           "label": "신경과 관련 가능 영역",
@@ -28,13 +37,46 @@
           "confidence": 0.72
         }
       ],
-      "coverages": ["outpatient", "tests"],
-      "occupation_boost": {"office": ["outpatient"]},
-      "concern_boost": {"outpatient": ["outpatient"], "tests": ["tests"], "inpatient": ["inpatient"]}
+      "coverages": [
+        "outpatient",
+        "tests"
+      ],
+      "occupation_boost": {
+        "office": [
+          "outpatient"
+        ]
+      },
+      "concern_boost": {
+        "outpatient": [
+          "outpatient"
+        ],
+        "tests": [
+          "tests"
+        ],
+        "inpatient": [
+          "inpatient"
+        ]
+      },
+      "ref_conditions": [
+        {
+          "kcd": "R51",
+          "name": "두통",
+          "source": "질병관리청 국가건강정보포털 — 두통(개요)"
+        }
+      ]
     },
     "leg_cramp": {
       "label": "하지 경련",
-      "aliases": ["다리에 쥐", "다리 쥐", "종아리 쥐", "하지 경련", "다리 경련", "근육 경련"],
+      "type": "hidden",
+      "body_area": "legs",
+      "aliases": [
+        "다리에 쥐",
+        "다리 쥐",
+        "종아리 쥐",
+        "하지 경련",
+        "다리 경련",
+        "근육 경련"
+      ],
       "areas": [
         {
           "label": "근골격·순환 관련 가능 영역",
@@ -47,13 +89,51 @@
           "confidence": 0.25
         }
       ],
-      "coverages": ["outpatient", "tests", "injury"],
-      "occupation_boost": {"service": ["injury", "outpatient"]},
-      "concern_boost": {"outpatient": ["outpatient"], "tests": ["tests"], "inpatient": ["inpatient"]}
+      "coverages": [
+        "outpatient",
+        "tests",
+        "injury"
+      ],
+      "occupation_boost": {
+        "service": [
+          "injury",
+          "outpatient"
+        ],
+        "field": [
+          "injury",
+          "outpatient"
+        ]
+      },
+      "concern_boost": {
+        "outpatient": [
+          "outpatient"
+        ],
+        "tests": [
+          "tests"
+        ],
+        "inpatient": [
+          "inpatient"
+        ]
+      },
+      "ref_conditions": [
+        {
+          "kcd": "R25",
+          "name": "이상운동",
+          "source": "질병관리청 국가건강정보포털 — 근육경련(개요)"
+        }
+      ]
     },
     "back_pain": {
       "label": "요통",
-      "aliases": ["요통", "허리 아", "허리가 아", "허리 통증", "허리 디스크"],
+      "type": "usual",
+      "body_area": "back",
+      "aliases": [
+        "요통",
+        "허리 아",
+        "허리가 아",
+        "허리 통증",
+        "허리 디스크"
+      ],
       "areas": [
         {
           "label": "정형외과·재활 관련 가능 영역",
@@ -61,13 +141,53 @@
           "confidence": 0.74
         }
       ],
-      "coverages": ["outpatient", "inpatient", "injury"],
-      "occupation_boost": {"service": ["injury"], "office": ["outpatient"]},
-      "concern_boost": {"outpatient": ["outpatient"], "inpatient": ["inpatient"], "tests": ["tests"]}
+      "coverages": [
+        "outpatient",
+        "inpatient",
+        "injury"
+      ],
+      "occupation_boost": {
+        "service": [
+          "injury"
+        ],
+        "field": [
+          "injury"
+        ],
+        "office": [
+          "outpatient"
+        ]
+      },
+      "concern_boost": {
+        "outpatient": [
+          "outpatient"
+        ],
+        "inpatient": [
+          "inpatient"
+        ],
+        "tests": [
+          "tests"
+        ]
+      },
+      "ref_conditions": [
+        {
+          "kcd": "M54",
+          "name": "등통증",
+          "source": "질병관리청 국가건강정보포털 — 요통(개요)"
+        }
+      ]
     },
     "indigestion": {
       "label": "소화불량",
-      "aliases": ["소화 안", "소화불량", "속 쓰", "체했", "배가 더부룩", "위장"],
+      "type": "usual",
+      "body_area": "abdomen",
+      "aliases": [
+        "소화 안",
+        "소화불량",
+        "속 쓰",
+        "체했",
+        "배가 더부룩",
+        "위장"
+      ],
       "areas": [
         {
           "label": "소화기내과 관련 가능 영역",
@@ -75,13 +195,42 @@
           "confidence": 0.7
         }
       ],
-      "coverages": ["outpatient", "tests"],
+      "coverages": [
+        "outpatient",
+        "tests"
+      ],
       "occupation_boost": {},
-      "concern_boost": {"outpatient": ["outpatient"], "tests": ["tests"], "inpatient": ["inpatient"]}
+      "concern_boost": {
+        "outpatient": [
+          "outpatient"
+        ],
+        "tests": [
+          "tests"
+        ],
+        "inpatient": [
+          "inpatient"
+        ]
+      },
+      "ref_conditions": [
+        {
+          "kcd": "K30",
+          "name": "기능성 소화불량",
+          "source": "질병관리청 국가건강정보포털 — 소화불량(개요)"
+        }
+      ]
     },
     "skin": {
       "label": "피부 증상",
-      "aliases": ["피부", "두드러기", "가려움", "발진", "습진", "피부가 가렵"],
+      "type": "usual",
+      "body_area": "skin",
+      "aliases": [
+        "피부",
+        "두드러기",
+        "가려움",
+        "발진",
+        "습진",
+        "피부가 가렵"
+      ],
       "areas": [
         {
           "label": "피부과 관련 가능 영역",
@@ -89,9 +238,514 @@
           "confidence": 0.7
         }
       ],
-      "coverages": ["outpatient", "tests"],
-      "occupation_boost": {"service": ["outpatient"]},
-      "concern_boost": {"outpatient": ["outpatient"], "tests": ["tests"], "inpatient": ["inpatient"]}
+      "coverages": [
+        "outpatient",
+        "tests"
+      ],
+      "occupation_boost": {
+        "service": [
+          "outpatient"
+        ],
+        "field": [
+          "outpatient"
+        ]
+      },
+      "concern_boost": {
+        "outpatient": [
+          "outpatient"
+        ],
+        "tests": [
+          "tests"
+        ],
+        "inpatient": [
+          "inpatient"
+        ]
+      },
+      "ref_conditions": [
+        {
+          "kcd": "L29",
+          "name": "가려움증",
+          "source": "질병관리청 국가건강정보포털 — 두드러기·피부염(개요)"
+        }
+      ]
+    },
+    "cough": {
+      "label": "기침",
+      "type": "usual",
+      "body_area": "chest",
+      "aliases": [
+        "기침",
+        "잔기침",
+        "콜록",
+        "기침이"
+      ],
+      "areas": [
+        {
+          "label": "호흡기 관련 가능 영역",
+          "source": "질병관리청 국가건강정보포털 — 기침(개요)",
+          "confidence": 0.7
+        }
+      ],
+      "coverages": [
+        "outpatient",
+        "tests"
+      ],
+      "occupation_boost": {},
+      "concern_boost": {
+        "outpatient": [
+          "outpatient"
+        ],
+        "tests": [
+          "tests"
+        ],
+        "inpatient": [
+          "inpatient"
+        ]
+      },
+      "ref_conditions": [
+        {
+          "kcd": "R05",
+          "name": "기침",
+          "source": "질병관리청 국가건강정보포털 — 기침(개요)"
+        }
+      ]
+    },
+    "fatigue": {
+      "label": "피로감",
+      "type": "usual",
+      "body_area": "general",
+      "aliases": [
+        "피로",
+        "피곤",
+        "기운이 없",
+        "무기력",
+        "피로감"
+      ],
+      "areas": [
+        {
+          "label": "전신 관련 가능 영역",
+          "source": "질병관리청 국가건강정보포털 — 피로(개요)",
+          "confidence": 0.62
+        }
+      ],
+      "coverages": [
+        "outpatient",
+        "tests"
+      ],
+      "occupation_boost": {
+        "office": [
+          "outpatient"
+        ]
+      },
+      "concern_boost": {
+        "outpatient": [
+          "outpatient"
+        ],
+        "tests": [
+          "tests"
+        ],
+        "inpatient": [
+          "inpatient"
+        ]
+      },
+      "ref_conditions": [
+        {
+          "kcd": "R53",
+          "name": "권태 및 피로",
+          "source": "질병관리청 국가건강정보포털 — 피로(개요)"
+        }
+      ]
+    },
+    "neck_pain": {
+      "label": "목 통증",
+      "type": "usual",
+      "body_area": "neck",
+      "aliases": [
+        "목 통증",
+        "목이 아",
+        "목 결",
+        "거북목",
+        "목디스크"
+      ],
+      "areas": [
+        {
+          "label": "정형외과·재활 관련 가능 영역",
+          "source": "질병관리청 국가건강정보포털 — 경추통(개요)",
+          "confidence": 0.7
+        }
+      ],
+      "coverages": [
+        "outpatient",
+        "tests",
+        "injury"
+      ],
+      "occupation_boost": {
+        "office": [
+          "outpatient"
+        ],
+        "service": [
+          "injury"
+        ],
+        "field": [
+          "injury"
+        ]
+      },
+      "concern_boost": {
+        "outpatient": [
+          "outpatient"
+        ],
+        "tests": [
+          "tests"
+        ],
+        "inpatient": [
+          "inpatient"
+        ]
+      },
+      "ref_conditions": [
+        {
+          "kcd": "M54.2",
+          "name": "경부통",
+          "source": "질병관리청 국가건강정보포털 — 경추통(개요)"
+        }
+      ]
+    },
+    "dizziness": {
+      "label": "어지러움",
+      "type": "usual",
+      "body_area": "head",
+      "aliases": [
+        "어지러",
+        "어지럼",
+        "현기증",
+        "핑 돈"
+      ],
+      "areas": [
+        {
+          "label": "신경과 관련 가능 영역",
+          "source": "질병관리청 국가건강정보포털 — 어지럼(개요)",
+          "confidence": 0.68
+        }
+      ],
+      "coverages": [
+        "outpatient",
+        "tests"
+      ],
+      "occupation_boost": {},
+      "concern_boost": {
+        "outpatient": [
+          "outpatient"
+        ],
+        "tests": [
+          "tests"
+        ],
+        "inpatient": [
+          "inpatient"
+        ]
+      },
+      "ref_conditions": [
+        {
+          "kcd": "R42",
+          "name": "어지럼 및 어지럼증",
+          "source": "질병관리청 국가건강정보포털 — 어지럼(개요)"
+        }
+      ]
+    },
+    "shoulder_pain": {
+      "label": "어깨 통증",
+      "type": "usual",
+      "body_area": "shoulder",
+      "aliases": [
+        "어깨 통증",
+        "어깨가 아",
+        "오십견",
+        "어깨 결"
+      ],
+      "areas": [
+        {
+          "label": "정형외과·재활 관련 가능 영역",
+          "source": "질병관리청 국가건강정보포털 — 어깨통증(개요)",
+          "confidence": 0.7
+        }
+      ],
+      "coverages": [
+        "outpatient",
+        "tests",
+        "injury"
+      ],
+      "occupation_boost": {
+        "office": [
+          "outpatient"
+        ],
+        "service": [
+          "injury"
+        ],
+        "field": [
+          "injury"
+        ]
+      },
+      "concern_boost": {
+        "outpatient": [
+          "outpatient"
+        ],
+        "tests": [
+          "tests"
+        ],
+        "inpatient": [
+          "inpatient"
+        ]
+      },
+      "ref_conditions": [
+        {
+          "kcd": "M75",
+          "name": "어깨병변",
+          "source": "질병관리청 국가건강정보포털 — 어깨통증(개요)"
+        }
+      ]
+    },
+    "leg_itch": {
+      "label": "다리 가려움",
+      "type": "hidden",
+      "body_area": "legs",
+      "aliases": [
+        "다리 가려움",
+        "다리가 가려",
+        "다리가 가렵",
+        "종아리 가려"
+      ],
+      "areas": [
+        {
+          "label": "피부과 관련 가능 영역",
+          "source": "질병관리청 국가건강정보포털 — 가려움증(개요)",
+          "confidence": 0.6
+        }
+      ],
+      "coverages": [
+        "outpatient",
+        "tests"
+      ],
+      "occupation_boost": {},
+      "concern_boost": {
+        "outpatient": [
+          "outpatient"
+        ],
+        "tests": [
+          "tests"
+        ]
+      },
+      "ref_conditions": [
+        {
+          "kcd": "L29",
+          "name": "가려움증",
+          "source": "질병관리청 국가건강정보포털 — 가려움증(개요)"
+        }
+      ]
+    },
+    "numbness": {
+      "label": "손발 저림",
+      "type": "hidden",
+      "body_area": "limbs",
+      "aliases": [
+        "손발 저림",
+        "손이 저",
+        "발이 저",
+        "저려"
+      ],
+      "areas": [
+        {
+          "label": "신경·근골격 관련 가능 영역",
+          "source": "질병관리청 국가건강정보포털 — 저림·감각이상(개요)",
+          "confidence": 0.6
+        }
+      ],
+      "coverages": [
+        "outpatient",
+        "tests"
+      ],
+      "occupation_boost": {
+        "office": [
+          "outpatient"
+        ],
+        "field": [
+          "outpatient"
+        ]
+      },
+      "concern_boost": {
+        "outpatient": [
+          "outpatient"
+        ],
+        "tests": [
+          "tests"
+        ]
+      },
+      "ref_conditions": [
+        {
+          "kcd": "R20",
+          "name": "피부감각의 장애",
+          "source": "질병관리청 국가건강정보포털 — 저림·감각이상(개요)"
+        }
+      ]
+    },
+    "thirst": {
+      "label": "자주 목마름",
+      "type": "hidden",
+      "body_area": "general",
+      "aliases": [
+        "목마름",
+        "갈증",
+        "입이 마",
+        "자꾸 물"
+      ],
+      "areas": [
+        {
+          "label": "구강·탈수 관련 가능 영역",
+          "source": "질병관리청 국가건강정보포털 — 구강건조(개요)",
+          "confidence": 0.55
+        }
+      ],
+      "coverages": [
+        "outpatient",
+        "tests"
+      ],
+      "occupation_boost": {},
+      "concern_boost": {
+        "outpatient": [
+          "outpatient"
+        ],
+        "tests": [
+          "tests"
+        ]
+      },
+      "ref_conditions": [
+        {
+          "kcd": "K11.7",
+          "name": "구강건조",
+          "source": "질병관리청 국가건강정보포털 — 구강건조(개요)"
+        }
+      ]
+    },
+    "swelling": {
+      "label": "붓기",
+      "type": "hidden",
+      "body_area": "limbs",
+      "aliases": [
+        "붓기",
+        "부었",
+        "부종",
+        "발이 부"
+      ],
+      "areas": [
+        {
+          "label": "순환 관련 가능 영역",
+          "source": "질병관리청 국가건강정보포털 — 부종(개요)",
+          "confidence": 0.58
+        }
+      ],
+      "coverages": [
+        "outpatient",
+        "tests"
+      ],
+      "occupation_boost": {
+        "service": [
+          "outpatient"
+        ],
+        "field": [
+          "outpatient"
+        ]
+      },
+      "concern_boost": {
+        "outpatient": [
+          "outpatient"
+        ],
+        "tests": [
+          "tests"
+        ]
+      },
+      "ref_conditions": [
+        {
+          "kcd": "R60",
+          "name": "부종",
+          "source": "질병관리청 국가건강정보포털 — 부종(개요)"
+        }
+      ]
+    },
+    "palpitation": {
+      "label": "가슴 두근거림",
+      "type": "hidden",
+      "body_area": "chest",
+      "aliases": [
+        "두근거림",
+        "심장이 빨리",
+        "가슴이 두근",
+        "빈맥"
+      ],
+      "areas": [
+        {
+          "label": "순환 관련 가능 영역",
+          "source": "질병관리청 국가건강정보포털 — 두근거림(개요)",
+          "confidence": 0.58
+        }
+      ],
+      "coverages": [
+        "outpatient",
+        "tests"
+      ],
+      "occupation_boost": {},
+      "concern_boost": {
+        "outpatient": [
+          "outpatient"
+        ],
+        "tests": [
+          "tests"
+        ],
+        "inpatient": [
+          "inpatient"
+        ]
+      },
+      "ref_conditions": [
+        {
+          "kcd": "R00.2",
+          "name": "심계항진",
+          "source": "질병관리청 국가건강정보포털 — 두근거림(개요)"
+        }
+      ]
+    },
+    "night_sweat": {
+      "label": "잘 때 땀",
+      "type": "hidden",
+      "body_area": "general",
+      "aliases": [
+        "잘 때 땀",
+        "밤에 땀",
+        "식은땀",
+        "도한"
+      ],
+      "areas": [
+        {
+          "label": "전신 불편 가능 영역",
+          "source": "질병관리청 국가건강정보포털 — 발한(개요)",
+          "confidence": 0.52
+        }
+      ],
+      "coverages": [
+        "outpatient",
+        "tests"
+      ],
+      "occupation_boost": {},
+      "concern_boost": {
+        "outpatient": [
+          "outpatient"
+        ],
+        "tests": [
+          "tests"
+        ]
+      },
+      "ref_conditions": [
+        {
+          "kcd": "R61",
+          "name": "다한증",
+          "source": "질병관리청 국가건강정보포털 — 발한(개요)"
+        }
+      ]
     }
   }
 }

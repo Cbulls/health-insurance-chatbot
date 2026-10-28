@@ -7,7 +7,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from harag.api.citations_fmt import citations_from_chunks, citations_sse_payload
+from harag.api.citations_fmt import (
+    citations_from_chunks, citations_sse_payload, sources_sse_payload)
 from harag.contracts.boundaries import Chunk, ScoredChunk
 from harag.parsing.document_parser import DocumentParser
 from harag.parsing.hwpx_decoder import HwpxDecoder
@@ -42,11 +43,24 @@ def test_citations_include_chunk_id_and_snippet():
     cites = citations_from_chunks([_chunk("c1", "규정.pdf p.3", "출장비 한도는 10만원이다.")])
     assert len(cites) == 1
     assert cites[0].chunk_id == "c1"
+    assert cites[0].document_id == "d1"
     assert cites[0].struct_path == "제1조"
     assert "출장비" in cites[0].snippet
     payload = citations_sse_payload([_chunk("c1", "L", "hello world")])
     assert isinstance(payload, list)
     assert payload[0]["chunk_id"] == "c1"
+    assert payload[0]["document_id"] == "d1"
+
+
+def test_sources_sse_preserves_context_order():
+    a = _chunk("c1", "A", "하나")
+    b = _chunk("c2", "B", "둘")
+    b.chunk.meta.document_id = "d2"
+    payload = sources_sse_payload([a, b])
+    assert payload == [
+        {"n": 1, "document_id": "d1", "source_document": "규정.pdf"},
+        {"n": 2, "document_id": "d2", "source_document": "규정.pdf"},
+    ]
 
 
 def _minimal_hwpx_bytes() -> bytes:

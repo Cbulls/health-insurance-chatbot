@@ -613,10 +613,10 @@ queryInput.addEventListener("input", () => {
   queryInput.style.height = Math.min(queryInput.scrollHeight, 160) + "px";
 });
 queryInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && !e.shiftKey) {
-    e.preventDefault();
-    composer.requestSubmit();
-  }
+  if (e.key !== "Enter" || e.shiftKey) return;
+  if (e.isComposing || e.keyCode === 229) return;
+  e.preventDefault();
+  composer.requestSubmit();
 });
 
 stopBtn.addEventListener("click", () => {
@@ -785,20 +785,22 @@ function abstainMessage(reason) {
   if (reason === "empty_context" || reason === "low_score")
     return "업로드한 문서에서 근거를 찾지 못했습니다. (지어내지 않고 답변을 보류합니다)";
   if ((reason || "").startsWith("fabricated_citation"))
-    return "답변 검증에 실패하여 응답을 보류합니다.";
+    return "답변 검증에 실패하여 응답을 보류합니다. 질문을 조금 바꿔 다시 시도해 주세요.";
+  if (reason === "missing_citation")
+    return "이 설명서만으로는 확답하기 어렵습니다. 다른 표현으로 물어보거나 질문을 바꿔 주세요.";
   if (reason === "llm_unavailable")
     return "답변 생성 서비스가 일시적으로 불안정합니다. 잠시 후 다시 시도해 주세요.";
   if (reason === "llm_cost_limit")
-    return "질의 컨텍스트가 비용 상한을 초과해 답변을 보류합니다. 질문을 더 구체적으로 줄여 보세요.";
+    return "질문이 너무 넓어 답변을 보류합니다. 더 구체적으로 물어봐 주세요.";
   if (reason === "no_evidence_in_documents")
-    return "문서에 근거가 없어 답변을 보류합니다.";
+    return "문서에 관련 내용이 없어 답변을 보류합니다. 다른 표현으로 물어봐 주세요.";
   if (reason === "injection_blocked")
     return "질의에 시스템 지시 우회·인젝션으로 보이는 내용이 있어 답변을 보류합니다.";
   if (reason === "injection_canary_leak")
     return "보안 검증에 실패하여 답변을 폐기했습니다. 질문을 바꿔 다시 시도해 주세요.";
   if ((reason || "").startsWith("injection"))
     return "보안 정책에 따라 답변을 보류합니다.";
-  return "답변을 제공할 수 없습니다: " + (reason || "unknown");
+  return "이 설명서만으로는 확답하기 어렵습니다. 다른 표현으로 물어보거나 질문을 바꿔 주세요.";
 }
 
 function renderCitations(wrap, data) {

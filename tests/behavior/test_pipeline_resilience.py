@@ -102,23 +102,28 @@ async def test_PR03_stream_tokens_arrive_incrementally():
     p = make_pipeline(StreamingLLM(["안녕", "하세요 [문서 1]."]))
     events = [e async for e in p.answer_stream("질문", AUTH, None)]
     kinds = [e.kind for e in events]
-    assert kinds == ["token", "token", "citations", "done"]
-    assert [e.data for e in events[:2]] == ["안녕", "하세요 [문서 1]."]
+    assert kinds == ["sources", "token", "token", "citations", "done"]
+    assert [e.data for e in events[1:3]] == ["안녕", "하세요 [문서 1]."]
+    assert isinstance(events[0].data, list)
+    assert events[0].data[0]["n"] == 1
+    assert events[0].data[0]["document_id"]
 
 
 async def test_PR04_stream_failure_before_first_token_abstains():
     """첫 토큰 전 실패는 abstain(사용자에게 지어낸 부분 노출 없음)."""
     p = make_pipeline(StreamingLLM(["안녕"], fail_after=0))
     events = [e async for e in p.answer_stream("질문", AUTH, None)]
-    assert events[0].kind == "abstain"
-    assert events[0].data == "llm_unavailable"
+    assert events[0].kind == "sources"
+    assert events[-1].kind == "abstain"
+    assert events[-1].data == "llm_unavailable"
 
 
 async def test_PR05_stream_failure_mid_stream_emits_error():
     """토큰이 이미 나간 뒤 실패는 error 이벤트(절단 고지, abstain으로 못 되돌림)."""
     p = make_pipeline(StreamingLLM(["안녕", "하세요"], fail_after=1))
     events = [e async for e in p.answer_stream("질문", AUTH, None)]
-    assert events[0].kind == "token"
+    assert events[0].kind == "sources"
+    assert events[1].kind == "token"
     assert events[-1].kind == "error"
     assert events[-1].data == "llm_stream_interrupted"
 
@@ -141,6 +146,7 @@ async def test_PR07_nonstreaming_llm_falls_back_to_chunked_stream():
     p = make_pipeline(PlainLLM())
     events = [e async for e in p.answer_stream("질문", AUTH, None)]
     kinds = [e.kind for e in events]
+    assert kinds[0] == "sources"
     assert kinds[-2:] == ["citations", "done"]
-    assert all(k == "token" for k in kinds[:-2])
-    assert "".join(e.data for e in events[:-2]) == ("가" * 30) + " [문서 1]."
+    assert all(k == "token" for k in kinds[1:-2])
+    assert "".join(e.data for e in events[1:-2]) == ("가" * 30) + " [문서 1]."

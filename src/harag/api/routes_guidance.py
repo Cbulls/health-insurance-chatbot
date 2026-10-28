@@ -7,7 +7,8 @@ from harag.api.middleware import current_trace_id
 from harag.api.ratelimit import enforce_rate_limit
 from harag.api.schemas import (
     AssessRequest, AssessResponse, GuidanceRequest, GuidanceResponse,
-    AreaItem, CoverageItem, SymptomItem, PurgeRequest, PurgeResponse,
+    AreaItem, CoverageItem, ProductCard, RefStat, SymptomItem, PurgeRequest,
+    PurgeResponse,
 )
 from harag.contracts.boundaries import AuthContext
 
@@ -21,7 +22,8 @@ async def assess(
 ):
     from harag.api.deps import get_guidance
     result = get_guidance().assess(
-        req.text, occupation=req.occupation, concern=req.concern)
+        req.text, occupation=req.occupation, concern=req.concern,
+        concerns=req.concerns or None, age_band=req.age_band, sex=req.sex)
     return AssessResponse(
         masked_preview=result.masked_preview,
         pii_kinds=result.pii_kinds,
@@ -30,6 +32,10 @@ async def assess(
         occupation_label=result.occupation_label,
         concern=result.concern,
         concern_label=result.concern_label,
+        concerns=result.concerns,
+        concern_labels=result.concern_labels,
+        age_band=result.age_band,
+        sex=result.sex,
         abstained=result.abstained,
         abstain_reason=result.abstain_reason,
         trace_id=current_trace_id(),
@@ -44,12 +50,17 @@ async def guidance(
     from harag.api.deps import get_guidance
     result = get_guidance().guide(
         req.text, occupation=req.occupation, concern=req.concern,
+        concerns=req.concerns or None, age_band=req.age_band, sex=req.sex,
         symptom_codes=req.symptoms or None, auth=auth)
     return GuidanceResponse(
         profile=result.profile,
         areas=[AreaItem(**a) for a in result.areas],
         coverages=[CoverageItem(**c) for c in result.coverages],
+        products=[ProductCard(**p) for p in result.products],
+        ref_stats=[RefStat(**s) for s in result.ref_stats],
         explanation=result.explanation,
+        explanation_why=result.explanation_why,
+        explanation_caution=result.explanation_caution,
         citations=result.citations,
         guard_flags=result.guard_flags,
         abstained=result.abstained,

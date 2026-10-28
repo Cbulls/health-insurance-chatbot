@@ -215,6 +215,10 @@ class Settings:
     query_embed_cache_size: int = 256
     query_embed_cache_ttl_s: float = 300.0
 
+    # ── 심평원 질병정보서비스 (키 없으면 호출 없음) ──
+    hira_service_key: str = ""
+    hira_base_url: str = "https://apis.data.go.kr/B551182/diseaseInfoService1"
+
     @property
     def qdrant_url_or_none(self) -> str | None:
         return self.qdrant_url or None
@@ -341,6 +345,11 @@ def get_settings() -> Settings:
             "RERANK_MAX_CANDIDATES_UNDER_LOAD", 8),
         query_embed_cache_size=_get_int("QUERY_EMBED_CACHE_SIZE", 256),
         query_embed_cache_ttl_s=_get_float("QUERY_EMBED_CACHE_TTL_S", 300.0),
+        hira_service_key=_get("HIRA_SERVICE_KEY", ""),
+        hira_base_url=_get(
+            "HIRA_BASE_URL",
+            "https://apis.data.go.kr/B551182/diseaseInfoService1",
+        ) or "https://apis.data.go.kr/B551182/diseaseInfoService1",
     )
 
 

@@ -76,6 +76,28 @@ class AuditLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime)
 
 
+class BrochureProfile(Base):
+    __tablename__ = "brochure_profiles"
+    uploaded_by: Mapped[str] = mapped_column(String(128), primary_key=True)
+    document_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    display_name: Mapped[str] = mapped_column(String(80), default="")
+    product_line: Mapped[str] = mapped_column(String(32), default="other")
+    doc_kind: Mapped[str] = mapped_column(String(32), default="")
+    cost_nature: Mapped[str] = mapped_column(String(32), default="")
+    summary: Mapped[str] = mapped_column(String(400), default="")
+    insurer: Mapped[str] = mapped_column(String(40), default="")
+    source_url: Mapped[str] = mapped_column(String(512), default="")
+    filled_by: Mapped[str] = mapped_column(String(16), default="catalog")
+    updated_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+class BrochureCoverage(Base):
+    __tablename__ = "brochure_coverages"
+    uploaded_by: Mapped[str] = mapped_column(String(128), primary_key=True)
+    document_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    coverage_code: Mapped[str] = mapped_column(String(32), primary_key=True)
+
+
 @dataclass(frozen=True)
 class DocumentRecord:
     """세션 밖에서도 안전한 문서 스냅샷(DetachedInstanceError 방지)."""
@@ -91,6 +113,21 @@ class DocumentRecord:
     status_reason: str = ""
     object_key: str = ""
     updated_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class BrochureProfileRecord:
+    document_id: str
+    uploaded_by: str
+    display_name: str = ""
+    product_line: str = "other"
+    doc_kind: str = ""
+    cost_nature: str = ""
+    summary: str = ""
+    insurer: str = ""
+    source_url: str = ""
+    filled_by: str = "catalog"
+    coverage_codes: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -137,6 +174,22 @@ def _to_record(doc: Document) -> DocumentRecord:
         status_reason=doc.status_reason or "",
         object_key=getattr(doc, "object_key", None) or "",
         updated_at=doc.updated_at,
+    )
+
+
+def _to_brochure(row: BrochureProfile, codes: list[str]) -> BrochureProfileRecord:
+    return BrochureProfileRecord(
+        document_id=row.document_id,
+        uploaded_by=row.uploaded_by,
+        display_name=row.display_name or "",
+        product_line=row.product_line or "other",
+        doc_kind=row.doc_kind or "",
+        cost_nature=row.cost_nature or "",
+        summary=row.summary or "",
+        insurer=getattr(row, "insurer", None) or "",
+        source_url=getattr(row, "source_url", None) or "",
+        filled_by=row.filled_by or "catalog",
+        coverage_codes=tuple(codes),
     )
 
 
@@ -189,6 +242,23 @@ class MetadataStore:
                     "ALTER TABLE documents ADD COLUMN collection_id "
                     "VARCHAR(64) DEFAULT ''"
                 )
+            try:
+                prow = conn.exec_driver_sql(
+                    "PRAGMA table_info(brochure_profiles)").fetchall()
+            except Exception:  # noqa: BLE001
+                prow = []
+            pcols = {r[1] for r in prow}
+            if pcols:
+                if "insurer" not in pcols:
+                    conn.exec_driver_sql(
+                        "ALTER TABLE brochure_profiles ADD COLUMN "
+                        "insurer VARCHAR(40) DEFAULT ''"
+                    )
+                if "source_url" not in pcols:
+                    conn.exec_driver_sql(
+                        "ALTER TABLE brochure_profiles ADD COLUMN "
+                        "source_url VARCHAR(512) DEFAULT ''"
+                    )
 
     def _session(self) -> Session:
         return self._Session()
@@ -280,6 +350,7 @@ class MetadataStore:
             doc = self._get(s, document_id, owner)
             if doc is None:
                 return False
+            self._delete_brochure_rows(s, document_id, owner)
             s.delete(doc)
             s.commit()
         self.log_audit(
@@ -534,6 +605,7 @@ class MetadataStore:
             doc = self._get(s, document_id, uploaded_by)
             if doc is None:
                 return False
+            self._delete_brochure_rows(s, document_id, uploaded_by)
             s.delete(doc)
             s.commit()
         self.log_audit(
@@ -542,6 +614,91 @@ class MetadataStore:
             trace_id=document_id,
         )
         return True
+
+    def _delete_brochure_rows(self, s: Session, document_id: str, owner: str) -> None:
+        for row in s.scalars(
+            select(BrochureCoverage).where(
+                BrochureCoverage.uploaded_by == owner,
+                BrochureCoverage.document_id == document_id,
+            )
+        ):
+            s.delete(row)
+        prof = s.get(BrochureProfile, (owner, document_id))
+        if prof is not None:
+            s.delete(prof)
+
+    def upsert_brochure_profile(
+            self, document_id: str, owner: str, payload: dict) -> BrochureProfileRecord:
+        name = str(payload.get("display_name") or "")[:80]
+        line = str(payload.get("product_line") or "other")[:32]
+        kind = str(payload.get("doc_kind") or "")[:32]
+        cost = str(payload.get("cost_nature") or "")[:32]
+        summary = str(payload.get("summary") or "")[:400]
+        insurer = str(payload.get("insurer") or "")[:40]
+        source_url = str(payload.get("source_url") or "")[:512]
+        filled = str(payload.get("filled_by") or "catalog")[:16]
+        codes = [c for c in (payload.get("coverage_codes") or []) if c]
+        with self._session() as s:
+            row = s.get(BrochureProfile, (owner, document_id))
+            if row is None:
+                row = BrochureProfile(
+                    uploaded_by=owner, document_id=document_id,
+                    display_name=name, product_line=line, doc_kind=kind,
+                    cost_nature=cost, summary=summary, insurer=insurer,
+                    source_url=source_url, filled_by=filled,
+                    updated_at=_now(),
+                )
+                s.add(row)
+            else:
+                row.display_name = name
+                row.product_line = line
+                row.doc_kind = kind
+                row.cost_nature = cost
+                row.summary = summary
+                row.insurer = insurer
+                row.source_url = source_url
+                row.filled_by = filled
+                row.updated_at = _now()
+            for old in s.scalars(
+                select(BrochureCoverage).where(
+                    BrochureCoverage.uploaded_by == owner,
+                    BrochureCoverage.document_id == document_id,
+                )
+            ):
+                s.delete(old)
+            for code in codes:
+                s.add(BrochureCoverage(
+                    uploaded_by=owner, document_id=document_id,
+                    coverage_code=code[:32],
+                ))
+            s.commit()
+            return _to_brochure(row, codes)
+
+    def get_brochure_profile(
+            self, document_id: str,
+            owner: str | None = None) -> BrochureProfileRecord | None:
+        with self._session() as s:
+            row = None
+            if owner:
+                row = s.get(BrochureProfile, (owner, document_id))
+            if row is None:
+                row = s.get(BrochureProfile, ("library", document_id))
+            if row is None:
+                row = s.scalar(
+                    select(BrochureProfile).where(
+                        BrochureProfile.document_id == document_id)
+                )
+            if row is None:
+                return None
+            codes = [
+                c.coverage_code for c in s.scalars(
+                    select(BrochureCoverage).where(
+                        BrochureCoverage.uploaded_by == row.uploaded_by,
+                        BrochureCoverage.document_id == row.document_id,
+                    )
+                )
+            ]
+            return _to_brochure(row, codes)
 
     def list_documents(self, department: str | None = None,
                        uploaded_by: str | None = None) -> list[DocumentRecord]:

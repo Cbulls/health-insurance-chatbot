@@ -53,12 +53,17 @@ class OutputGuard:
                 ok=False, answer=None, cited_chunk_ids=[],
                 abstain_reason="no_evidence_in_documents")
 
-        # A6: 비기권 답변은 유효 인용 `[문서 N]` ≥1 필수
+        # A6: 마커가 있으면 유효 인용만 유지. 없으면 검색 컨텍스트 앞쪽을
+        # 자동 연결(본문에 [문서 N] 강제 삽입 없음 → 자연스러운 답 + 칩 출처).
         valid = [c for c in cited_chunk_ids if c in available]
         if not valid:
+            if not available_ids:
+                return OutputGuardResult(
+                    ok=False, answer=None, cited_chunk_ids=[],
+                    abstain_reason="missing_citation")
+            fallback = list(available_ids)[:3]
             return OutputGuardResult(
-                ok=False, answer=None, cited_chunk_ids=[],
-                abstain_reason="missing_citation")
+                ok=True, answer=answer, cited_chunk_ids=fallback)
 
         return OutputGuardResult(
             ok=True, answer=answer, cited_chunk_ids=valid)

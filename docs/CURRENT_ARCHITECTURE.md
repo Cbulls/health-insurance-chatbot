@@ -15,6 +15,7 @@
 4. **[README.md](../README.md)** — 한 줄 목적 + 실행.
 5. **[SEQUENCE_DIAGRAMS.md](SEQUENCE_DIAGRAMS.md)** — 상태 안내·적재·질의 UML 시퀀스. SD-04는 두 유형 칩 → 닫힌 코드 → 팀 설계(심평원·공단 Open API·캐시) 목표 흐름.
 6. **[CLASS_DIAGRAM.md](CLASS_DIAGRAM.md)** — Guidance + RAG 핵심 클래스.
+7. **[INCREMENTAL_DEV.md](INCREMENTAL_DEV.md)** — 10일 점진 슬라이스(결과 UI → 두 유형 칩 → 캐시 → HIRA).
 
 **[MASTER_DESIGN.md](../MASTER_DESIGN.md)** 와 `설계/harag_project/docs/` 는 **한글 행정문서 FAQ RAG**(HWP, GPU 임베딩, K8s, Postgres 기본)다. 인슈런스핏 발표용 아키텍처로 쓰면 안 된다. 약관 RAG 뒷단(파싱·청킹·Qdrant·abstain)만 그 자산의 수직 슬라이스다.
 

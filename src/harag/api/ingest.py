@@ -60,18 +60,27 @@ class InProcessIngest:
                  status_cache=None,
                  pii_masker=None,
                  object_store=None,
-                 version_coord=None):
+                 version_coord=None,
+                 profile_llm=None):
         self._metadata = metadata or MetadataStore(dsn="sqlite:///:memory:")
         self._cache = status_cache
         self._queue = queue  # RedisIngestQueue | None
+        self._profile_llm = profile_llm
         on_failed = None
         if queue is not None:
             on_failed = queue.on_failed
+
+        def _profile_hook(document_id, owner, filename, preview):
+            from harag.guidance.brochure import upsert_extracted_profile
+            upsert_extracted_profile(
+                self._metadata, document_id, owner, filename, preview,
+                llm=self._profile_llm)
+
         self._pipeline = PdfIngestPipeline(
             parser, chunker, embedder, store, self._metadata,
             status_cache=status_cache, on_failed=on_failed,
             pii_masker=pii_masker, object_store=object_store,
-            version_coord=version_coord)
+            version_coord=version_coord, profile_hook=_profile_hook)
         self._lock = threading.Lock()
         self._executor = ThreadPoolExecutor(
             max_workers=max_workers, thread_name_prefix="harag-ingest")

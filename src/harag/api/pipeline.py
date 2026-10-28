@@ -97,12 +97,17 @@ class QueryPipelineImpl:
         self._metadata = metadata
 
     async def answer(self, query: str, auth: AuthContext,
-                     conversation_id: str | None) -> AnswerResult:
+                     conversation_id: str | None,
+                     document_id: str | None = None,
+                     document_ids: list[str] | None = None) -> AnswerResult:
         return await asyncio.to_thread(
-            self._answer_sync, query, auth, conversation_id)
+            self._answer_sync, query, auth, conversation_id,
+            document_id, document_ids)
 
     def _retrieve_sync(self, query: str, auth: AuthContext,
-                       conversation_id: str | None
+                       conversation_id: str | None,
+                       document_id: str | None = None,
+                       document_ids: list[str] | None = None,
                        ) -> tuple[list[ScoredChunk], QueryTrace]:
         tid = current_trace_id() or "local"
         tr = QueryTrace(tid, query, mask=_query_mask_fn())
@@ -117,8 +122,19 @@ class QueryPipelineImpl:
             search_query = expand_query_for_search(search_query)
 
         with tr.stage("retrieval"):
-            results: list[ScoredChunk] = self._retriever.retrieve(
-                search_query, auth=auth, k=self._top_k)
+            try:
+                results: list[ScoredChunk] = self._retriever.retrieve(
+                    search_query, auth=auth, k=self._top_k,
+                    document_id=document_id,
+                    document_ids=document_ids)
+            except TypeError:
+                try:
+                    results = self._retriever.retrieve(
+                        search_query, auth=auth, k=self._top_k,
+                        document_id=document_id)
+                except TypeError:
+                    results = self._retriever.retrieve(
+                        search_query, auth=auth, k=self._top_k)
 
         under_load = _INFLIGHT.value >= self._under_load_inflight
         with tr.stage("rerank"):
@@ -203,7 +219,9 @@ class QueryPipelineImpl:
             logger.exception("query audit failed")
 
     def _answer_sync(self, query: str, auth: AuthContext,
-                     conversation_id: str | None) -> AnswerResult:
+                     conversation_id: str | None,
+                     document_id: str | None = None,
+                     document_ids: list[str] | None = None) -> AnswerResult:
         hard = _scan_query_hard(query)
         if hard is not None:
             tid = current_trace_id() or "local"
@@ -229,7 +247,9 @@ class QueryPipelineImpl:
             return result
 
         with _INFLIGHT:
-            results, tr = self._retrieve_sync(query, auth, conversation_id)
+            results, tr = self._retrieve_sync(
+                query, auth, conversation_id,
+                document_id=document_id, document_ids=document_ids)
             result = self._generate_sync(query, results, conversation_id)
             est = max(len(query) // 2, 1)
             if result.answer:
@@ -271,7 +291,10 @@ class QueryPipelineImpl:
         )
 
     async def answer_stream(self, query: str, auth: AuthContext,
-                            conversation_id: str | None) -> AsyncIterator[StreamEvent]:
+                            conversation_id: str | None,
+                            document_id: str | None = None,
+                            document_ids: list[str] | None = None,
+                            ) -> AsyncIterator[StreamEvent]:
         hard = _scan_query_hard(query)
         if hard is not None:
             tid = current_trace_id() or "local"
@@ -284,7 +307,9 @@ class QueryPipelineImpl:
 
         def _retrieve_counted():
             with _INFLIGHT:
-                return self._retrieve_sync(query, auth, conversation_id)
+                return self._retrieve_sync(
+                    query, auth, conversation_id,
+                    document_id=document_id, document_ids=document_ids)
 
         results, tr = await asyncio.to_thread(_retrieve_counted)
         pre = self._generator.precheck(results)
@@ -313,14 +338,20 @@ class QueryPipelineImpl:
                 yield StreamEvent(kind="abstain",
                                   data=result.abstain_reason or "no_answer")
                 return
+            from harag.api.citations_fmt import (
+                citations_sse_payload, sources_sse_payload)
+            yield StreamEvent(kind="sources", data=sources_sse_payload(results))
             for piece in _chunks_of(result.answer):
                 yield StreamEvent(kind="token", data=piece)
-            from harag.api.citations_fmt import citations_sse_payload
             yield StreamEvent(
                 kind="citations",
                 data=citations_sse_payload(result.context_chunks))
             yield StreamEvent(kind="done", data="")
             return
+
+        from harag.api.citations_fmt import (
+            citations_sse_payload, sources_sse_payload)
+        yield StreamEvent(kind="sources", data=sources_sse_payload(results))
 
         emitted = False
         pieces: list[str] = []
@@ -384,7 +415,6 @@ class QueryPipelineImpl:
             abstained=False, abstain_reason=None)
         est = max((len(query) + len(answer_text)) // 2, 1)
         self._audit("query", auth, tr, result, token_estimate=est)
-        from harag.api.citations_fmt import citations_sse_payload
         yield StreamEvent(
             kind="citations", data=citations_sse_payload(cited_chunks))
         yield StreamEvent(kind="done", data="")

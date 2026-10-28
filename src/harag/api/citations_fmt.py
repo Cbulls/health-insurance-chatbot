@@ -22,6 +22,7 @@ def citations_from_chunks(chunks: list[ScoredChunk],
             source_document=sc.chunk.meta.source_document,
             page=sc.chunk.meta.page_ref,
             chunk_id=cid,
+            document_id=str(getattr(sc.chunk.meta, "document_id", "") or ""),
             struct_path=sc.chunk.meta.struct_path or "",
             snippet=text[:snippet_len],
         ))
@@ -30,3 +31,16 @@ def citations_from_chunks(chunks: list[ScoredChunk],
 
 def citations_sse_payload(chunks: list[ScoredChunk]) -> list[dict]:
     return [c.model_dump() for c in citations_from_chunks(chunks)]
+
+
+def sources_sse_payload(chunks: list[ScoredChunk]) -> list[dict]:
+    """컨텍스트 순서(1-based n) → document_id. [문서 N] 링크용."""
+    out: list[dict] = []
+    for i, sc in enumerate(chunks or [], start=1):
+        meta = sc.chunk.meta
+        out.append({
+            "n": i,
+            "document_id": str(getattr(meta, "document_id", "") or ""),
+            "source_document": str(getattr(meta, "source_document", "") or ""),
+        })
+    return out

@@ -9,6 +9,8 @@ from pydantic import BaseModel, Field
 class QueryRequest(BaseModel):
     query: str = Field(min_length=1, max_length=2000)
     conversation_id: Optional[str] = None
+    document_id: Optional[str] = Field(default=None, max_length=64)
+    document_ids: list[str] = Field(default_factory=list, max_length=8)
 
 
 class Citation(BaseModel):
@@ -16,6 +18,7 @@ class Citation(BaseModel):
     source_document: str
     page: Union[int, list[int], None] = None
     chunk_id: str = ""
+    document_id: str = ""
     struct_path: str = ""
     snippet: str = ""
 
@@ -44,6 +47,15 @@ class DocumentStatus(BaseModel):
     uploaded_by: str = ""
     department: str = ""
     collection_id: str = ""
+    display_name: str = ""
+    product_line: str = ""
+    product_line_label: str = ""
+    doc_kind_label: str = ""
+    cost_nature_label: str = ""
+    summary: str = ""
+    insurer: str = ""
+    source_url: str = ""
+    has_file: bool = False
 
 
 class DeleteResponse(BaseModel):
@@ -73,13 +85,24 @@ class CollectionDetail(CollectionOut):
 
 class AssessRequest(BaseModel):
     text: str = Field(min_length=1, max_length=2000)
-    occupation: Optional[str] = None  # service | office | other
-    concern: Optional[str] = None     # outpatient | inpatient | tests
+    occupation: Optional[str] = None
+    concern: Optional[str] = None
+    concerns: list[str] = Field(default_factory=list)
+    age_band: Optional[str] = None
+    sex: Optional[str] = None
+
+
+class RefCondition(BaseModel):
+    kcd: str
+    name: str
+    source: str = ""
 
 
 class SymptomItem(BaseModel):
     code: str
     label: str
+    type: str = "usual"
+    ref_conditions: list[RefCondition] = Field(default_factory=list)
 
 
 class AssessResponse(BaseModel):
@@ -90,6 +113,10 @@ class AssessResponse(BaseModel):
     occupation_label: Optional[str] = None
     concern: Optional[str] = None
     concern_label: Optional[str] = None
+    concerns: list[str] = Field(default_factory=list)
+    concern_labels: list[str] = Field(default_factory=list)
+    age_band: Optional[str] = None
+    sex: Optional[str] = None
     abstained: bool = False
     abstain_reason: Optional[str] = None
     trace_id: str = ""
@@ -99,6 +126,9 @@ class GuidanceRequest(BaseModel):
     text: str = Field(default="", max_length=2000)
     occupation: Optional[str] = None
     concern: Optional[str] = None
+    concerns: list[str] = Field(default_factory=list)
+    age_band: Optional[str] = None
+    sex: Optional[str] = None
     symptoms: list[str] = Field(default_factory=list)
 
 
@@ -116,6 +146,8 @@ class AreaItem(BaseModel):
     label: str
     source: str = ""
     confidence: float = 0.0
+    matched: int = 0
+    selected: int = 0
 
 
 class CoverageItem(BaseModel):
@@ -126,11 +158,43 @@ class CoverageItem(BaseModel):
     why: list[str] = Field(default_factory=list)
 
 
+class RefStat(BaseModel):
+    kcd: str
+    name: str
+    inpatient_share: float | None = None
+    age_sex_count: int | None = None
+    total_count: int | None = None
+    coverage_link: str = ""
+    source: str = "건강보험심사평가원 질병정보서비스"
+    cached: bool = True
+
+
+class ProductCard(BaseModel):
+    document_id: str = ""
+    title: str
+    citation_label: str = ""
+    snippet: str = ""
+    matched_coverages: list[str] = Field(default_factory=list)
+    scope: str = "personal"
+    name: str = ""
+    product_line: str = ""
+    product_line_label: str = ""
+    doc_kind_label: str = ""
+    cost_nature_label: str = ""
+    summary: str = ""
+    insurer: str = ""
+    source_url: str = ""
+
+
 class GuidanceResponse(BaseModel):
     profile: dict = Field(default_factory=dict)
     areas: list[AreaItem] = Field(default_factory=list)
     coverages: list[CoverageItem] = Field(default_factory=list)
+    products: list[ProductCard] = Field(default_factory=list)
+    ref_stats: list[RefStat] = Field(default_factory=list)
     explanation: str = ""
+    explanation_why: str = ""
+    explanation_caution: str = ""
     citations: list[str] = Field(default_factory=list)
     guard_flags: list[str] = Field(default_factory=list)
     abstained: bool = False

@@ -14,11 +14,37 @@ def load_kb() -> dict:
     return json.loads(_KB_PATH.read_text(encoding="utf-8"))
 
 
+def ref_conditions_of(spec: dict | None) -> list[dict]:
+    """KB 증상의 닫힌 참고 상병. 당뇨·고혈압 코드를 여기서 만들지 않는다."""
+    out: list[dict] = []
+    for raw in (spec or {}).get("ref_conditions") or []:
+        kcd = str(raw.get("kcd") or "").strip()
+        name = str(raw.get("name") or "").strip()
+        if not kcd or not name:
+            continue
+        out.append({
+            "kcd": kcd,
+            "name": name,
+            "source": str(raw.get("source") or "").strip(),
+        })
+    return out
+
+
+def symptom_payload(code: str, label: str, typ: str, spec: dict | None) -> dict:
+    return {
+        "code": code,
+        "label": label,
+        "type": typ,
+        "ref_conditions": ref_conditions_of(spec),
+    }
+
+
 @dataclass(frozen=True)
 class SymptomHit:
     code: str
     label: str
     alias: str
+    type: str = "usual"
 
 
 def match_symptoms(text: str, kb: dict | None = None) -> list[SymptomHit]:
@@ -38,5 +64,8 @@ def match_symptoms(text: str, kb: dict | None = None) -> list[SymptomHit]:
             continue
         if alias in hay:
             seen.add(code)
-            hits.append(SymptomHit(code=code, label=label, alias=alias))
+            spec = (kb.get("symptoms") or {}).get(code) or {}
+            hits.append(SymptomHit(
+                code=code, label=label, alias=alias,
+                type=str(spec.get("type") or "usual")))
     return hits

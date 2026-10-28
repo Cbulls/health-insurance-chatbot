@@ -453,10 +453,31 @@ class QdrantVectorStore:
         except Exception:  # noqa: BLE001
             return _PAYLOAD_INCLUDE
 
-    def retrieve(self, query: str, auth: AuthContext, k: int = 10) -> list[ScoredChunk]:
+    def retrieve(self, query: str, auth: AuthContext, k: int = 10,
+                 document_id: str | None = None,
+                 document_ids: list[str] | None = None) -> list[ScoredChunk]:
         dense = self._embed.encode([query])[0]
-        flt = models.Filter(must=[models.FieldCondition(
-            key="acl_tags", match=models.MatchAny(any=list(auth.acl_tags)))])
+        must = [models.FieldCondition(
+            key="acl_tags", match=models.MatchAny(any=list(auth.acl_tags)))]
+        ids: list[str] = []
+        if document_ids:
+            for d in document_ids:
+                s = (d or "").strip()
+                if s and s not in ids:
+                    ids.append(s)
+        if document_id:
+            s = document_id.strip()
+            if s and s not in ids:
+                ids.append(s)
+        if len(ids) == 1:
+            must.append(models.FieldCondition(
+                key="document_id",
+                match=models.MatchValue(value=ids[0])))
+        elif len(ids) > 1:
+            must.append(models.FieldCondition(
+                key="document_id",
+                match=models.MatchAny(any=ids)))
+        flt = models.Filter(must=must)
         pref = k * self._prefetch_mult
         payload_sel = self._with_payload_selector()
 

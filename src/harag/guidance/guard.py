@@ -16,6 +16,7 @@ _DIAGNOSIS = re.compile(
     r"|앓고 있|병입니다|질환입니다)")
 _COMPANY_PRODUCT = re.compile(
     r"(삼성생명|삼성화재|현대해상|DB손해|KB손해|한화생명|교보생명)\s*\S*보험")
+_SOLICIT = re.compile(r"(가입하세요|추천합니다|가입을 권유)")
 
 
 def known_coverage_labels(kb: dict | None = None) -> list[str]:
@@ -32,19 +33,41 @@ def known_coverage_labels(kb: dict | None = None) -> list[str]:
 
 def guard_text(text: str, allowed_coverage_labels: list[str],
                masker: PiiMasker | None = None,
-               catalog_labels: list[str] | None = None) -> tuple[str, list[str]]:
+               catalog_labels: list[str] | None = None,
+               keep_phrases: list[str] | None = None) -> tuple[str, list[str]]:
     """(정제된 텍스트, 차단 사유 목록).
 
     규칙 이탈은 카탈로그 라벨이 이번 요청의 허용 집합 밖에 있을 때만 자른다.
+    keep_phrases에 있는 매칭 상품명·보험사는 회사명 패턴에서도 유지한다.
     """
     flags: list[str] = []
     out = text or ""
+    keep = [p for p in (keep_phrases or []) if p]
     if _DIAGNOSIS.search(out):
         flags.append("diagnosis_blocked")
-        out = _DIAGNOSIS.sub("[진단 단정 삭제]", out)
+        out = _DIAGNOSIS.sub("", out)
     if _COMPANY_PRODUCT.search(out):
-        flags.append("product_name_blocked")
-        out = _COMPANY_PRODUCT.sub("[특정 상품명 삭제]", out)
+        blocked = False
+
+        def _company_repl(m: re.Match) -> str:
+            nonlocal blocked
+            span = m.group(0)
+            for phrase in keep:
+                if span in phrase or phrase in span:
+                    return span
+            blocked = True
+            return ""
+
+        out = _COMPANY_PRODUCT.sub(_company_repl, out)
+        if blocked:
+            flags.append("product_name_blocked")
+    if _SOLICIT.search(out):
+        flags.append("solicit_blocked")
+        out = _SOLICIT.sub("", out)
+    out = re.sub(r"[ \t]{2,}", " ", out)
+    out = re.sub(r" ?([,.，。]) ?", r"\1 ", out)
+    out = re.sub(r"\n{3,}", "\n\n", out)
+    out = out.strip()
 
     allowed = set(allowed_coverage_labels)
     catalog = list(catalog_labels) if catalog_labels is not None else known_coverage_labels()

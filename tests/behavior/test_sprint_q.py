@@ -10,9 +10,16 @@ from harag.retrieval.query_normalize import expand_query_for_search
 from harag.security.output_guard import OutputGuard
 
 
-def test_missing_citation_abstains():
+def test_missing_citation_auto_attaches_context():
     g = OutputGuard().validate(
-        "통원 한도는 20만원이다.", [], ["c1"])
+        "통원 한도는 20만원입니다.", [], ["c1", "c2", "c3", "c4"])
+    assert g.ok
+    assert g.answer == "통원 한도는 20만원입니다."
+    assert g.cited_chunk_ids == ["c1", "c2", "c3"]
+
+
+def test_missing_citation_without_context_still_abstains():
+    g = OutputGuard().validate("아무 말.", [], [])
     assert not g.ok
     assert g.abstain_reason == "missing_citation"
 

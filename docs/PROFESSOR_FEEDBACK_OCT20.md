@@ -3,7 +3,8 @@
 다른 생성형 AI가 정리한 면담 요약을, **지금 인슈런스핏 코드**와 맞춰 재정리한 문서다.
 
 이전 재정의: [PROFESSOR_FEEDBACK.md](PROFESSOR_FEEDBACK.md).  
-흐름도 초안은 이미 있다: [SEQUENCE_DIAGRAMS.md](SEQUENCE_DIAGRAMS.md).
+흐름도 초안은 이미 있다: [SEQUENCE_DIAGRAMS.md](SEQUENCE_DIAGRAMS.md).  
+10일 점진 슬라이스: [INCREMENTAL_DEV.md](INCREMENTAL_DEV.md).
 
 제출일은 면담 표현(“한 10일”)을 기준으로 한다. AWS 10월 30일은 **면담 본문이 아니라 팀 내부** 일정이다. 정확한 제출일은 팀에 확인이 필요하다.
 

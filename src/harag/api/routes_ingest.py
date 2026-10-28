@@ -13,6 +13,7 @@ import tempfile
 from fastapi import (
     APIRouter, Depends, UploadFile, File, Form, HTTPException, status,
 )
+from fastapi.responses import FileResponse, Response
 
 from harag.api.auth import require_auth
 from harag.api.acl_helpers import (
@@ -73,14 +74,54 @@ async def _spool_upload(file: UploadFile, max_bytes: int,
 
 
 def _to_status(r) -> DocumentStatus:
+    from harag.guidance.brochure import labels_for
+    extra = {}
+    owner = getattr(r, "owner", None) or getattr(r, "uploaded_by", None) or ""
+    meta = None
+    try:
+        from harag.api.deps import get_ingest
+        ingest = get_ingest()
+        getter = getattr(ingest._metadata, "get_brochure_profile", None)
+        if callable(getter):
+            meta = getter(r.document_id, owner or None)
+    except Exception:  # noqa: BLE001
+        meta = None
+    if meta is not None:
+        extra = labels_for({
+            "display_name": meta.display_name,
+            "product_line": meta.product_line,
+            "doc_kind": meta.doc_kind,
+            "cost_nature": meta.cost_nature,
+            "summary": meta.summary,
+            "insurer": meta.insurer,
+            "source_url": meta.source_url,
+        })
     return DocumentStatus(
         document_id=r.document_id, status=r.status,
         filename=r.filename, n_chunks=r.n_chunks, error=r.error,
         scope=getattr(r, "scope", None) or "personal",
-        uploaded_by=getattr(r, "owner", None) or "",
+        uploaded_by=owner,
         department=getattr(r, "department", None) or "",
         collection_id=getattr(r, "collection_id", None) or "",
+        display_name=extra.get("display_name", ""),
+        product_line=extra.get("product_line", ""),
+        product_line_label=extra.get("product_line_label", ""),
+        doc_kind_label=extra.get("doc_kind_label", ""),
+        cost_nature_label=extra.get("cost_nature_label", ""),
+        summary=extra.get("summary", ""),
+        insurer=extra.get("insurer", ""),
+        source_url=extra.get("source_url", ""),
+        has_file=_status_has_file(r),
     )
+
+
+def _status_has_file(r) -> bool:
+    try:
+        from harag.api.deps import get_ingest
+        from harag.api.document_file import document_has_file
+        return document_has_file(r, ingest=get_ingest())
+    except Exception:  # noqa: BLE001
+        return getattr(r, "scope", "") == "library"
 
 
 @router.post("/documents", response_model=IngestResponse,
@@ -231,6 +272,31 @@ async def get_document(document_id: str,
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
                             detail="not found")
     return _to_status(_from_meta(meta))
+
+
+@router.get("/documents/{document_id}/file")
+async def get_document_file(document_id: str,
+                            auth: AuthContext = Depends(require_auth)):
+    from harag.api.deps import get_ingest
+    from harag.api.document_file import open_document_pdf
+    ingest = get_ingest()
+    dept_tags = [t for t in auth.acl_tags if t.startswith("dept:")]
+    meta = ingest._metadata.find_accessible(
+        document_id, auth.user_id, dept_tags)
+    if meta is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail="not found")
+    opened = open_document_pdf(meta, ingest=ingest)
+    if opened is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail="file not found")
+    headers = {"Content-Disposition": 'inline; filename="brochure.pdf"'}
+    if hasattr(opened, "read_bytes"):
+        return FileResponse(
+            opened, media_type="application/pdf", filename="brochure.pdf",
+            content_disposition_type="inline", headers=headers)
+    return Response(
+        content=opened, media_type="application/pdf", headers=headers)
 
 
 @router.delete("/documents/{document_id}", response_model=DeleteResponse)

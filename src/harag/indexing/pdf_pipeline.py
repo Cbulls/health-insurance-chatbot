@@ -72,7 +72,8 @@ class PdfIngestPipeline:
                  on_success: OnDocCallback | None = None,
                  pii_masker=None,
                  object_store=None,
-                 version_coord=None):
+                 version_coord=None,
+                 profile_hook=None):
         self._parser = parser
         self._chunker = chunker
         self._embedder = embedder
@@ -84,6 +85,7 @@ class PdfIngestPipeline:
         self._pii_masker = pii_masker
         self._object_store = object_store
         self._version_coord = version_coord
+        self._profile_hook = profile_hook
 
     def process(self, document_id: str, raw: bytes, filename: str,
                 owner: str, acl_tags: list[str] | None = None,
@@ -181,6 +183,13 @@ class PdfIngestPipeline:
             self._metadata.mark_ready(
                 document_id, owner, n, warning=warn_msg, version=version)
             self._cache_set(document_id, owner, filename, "ready", n, warn_msg)
+            if self._profile_hook is not None and owner != "library":
+                try:
+                    preview = " ".join(
+                        (getattr(c, "text", "") or "") for c in (chunks or [])[:6])
+                    self._profile_hook(document_id, owner, filename, preview)
+                except Exception:  # noqa: BLE001
+                    logger.info("brochure profile hook skip %s", document_id)
             if self._on_success is not None:
                 self._on_success(document_id)
             if warn_msg:

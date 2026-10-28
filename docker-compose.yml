@@ -116,6 +116,8 @@ services:
       LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
       TOP_K: ${TOP_K:-20}
       MIN_SCORE: ${MIN_SCORE:-0.15}
+      HIRA_SERVICE_KEY: ${HIRA_SERVICE_KEY:-}
+      HIRA_BASE_URL: ${HIRA_BASE_URL:-https://apis.data.go.kr/B551182/diseaseInfoService1}
 
   worker:
     build: .

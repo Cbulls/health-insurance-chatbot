@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -229,20 +230,23 @@ def _build_and_inject() -> None:
         context_max_tokens=settings.context_max_tokens,
         metadata=metadata,
     )
+    from harag.guidance.hira import HiraStats
+    from harag.guidance.service import GuidanceService
+    from harag.llm.local_llm import LocalExtractiveLLM
+    guide_llm = None if isinstance(llm, LocalExtractiveLLM) else llm
     ingest = InProcessIngest(
         parser=DocumentParser(), chunker=StructuralChunker(),
         embedder=embedder, store=store, metadata=metadata,
         queue=ingest_queue, status_cache=status_cache,
         pii_masker=pii_masker, object_store=object_store,
-        version_coord=version_coord)
+        version_coord=version_coord, profile_llm=guide_llm)
 
     set_query_pipeline(pipeline)
     set_ingest(ingest)
     set_vector_store(store)
-    from harag.guidance.service import GuidanceService
-    from harag.llm.local_llm import LocalExtractiveLLM
-    guide_llm = None if isinstance(llm, LocalExtractiveLLM) else llm
-    set_guidance(GuidanceService(pipeline=pipeline, llm=guide_llm))
+    set_guidance(GuidanceService(
+        pipeline=pipeline, llm=guide_llm,
+        stats=HiraStats.from_settings(settings)))
 
     hybrid_flag = getattr(store, "_hybrid", None)
     logger.info(
@@ -258,6 +262,16 @@ def _build_and_inject() -> None:
         min(settings.rerank_top_n, settings.top_k) if settings.rerank_enabled else 0,
         type(rewrite_llm).__name__)
 
+    def _run_demo_seed() -> None:
+        from harag.indexing.demo_seed import seed_demo_brochures
+        try:
+            n = seed_demo_brochures(ingest, store)
+            logger.info("demo brochure seed done count=%s", n)
+        except Exception:  # noqa: BLE001
+            logger.exception("demo brochure seed failed — guidance still works")
+
+    threading.Thread(
+        target=_run_demo_seed, name="demo-seed", daemon=True).start()
 
 
 @asynccontextmanager
