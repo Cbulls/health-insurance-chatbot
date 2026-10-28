@@ -94,9 +94,11 @@ async def query(
     document_ids = _resolve_document_ids(req, auth)
     from harag.api.deps import get_query_pipeline
     pipeline = get_query_pipeline()
+    match_ctx = (req.match_context or "").strip() or None
     result = await pipeline.answer(
         query=req.query, auth=auth, conversation_id=req.conversation_id,
-        document_ids=document_ids or None)
+        document_ids=document_ids or None,
+        match_context=match_ctx)
     return QueryResponse(
         answer=result.answer,
         citations=citations_from_chunks(result.context_chunks),
@@ -115,6 +117,7 @@ async def query_stream(
     document_ids = _resolve_document_ids(req, auth)
     from harag.api.deps import get_query_pipeline, StreamEvent
     pipeline = get_query_pipeline()
+    match_ctx = (req.match_context or "").strip() or None
 
     async def event_stream():
         # 스트림은 이미 200으로 시작됐으므로, 도중 예외를 그냥 전파하면
@@ -123,6 +126,7 @@ async def query_stream(
             async for event in pipeline.answer_stream(
                 query=req.query, auth=auth, conversation_id=req.conversation_id,
                 document_ids=document_ids or None,
+                match_context=match_ctx,
             ):
                 yield f"data: {event.to_sse()}\n\n"
         except Exception:  # noqa: BLE001 — 스트림 최후 방어선(내부 미누설)

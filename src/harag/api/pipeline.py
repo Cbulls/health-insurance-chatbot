@@ -78,6 +78,92 @@ def _scan_query_hard(query: str):
     return None
 
 
+MATCH_CONTEXT_CHUNK_ID = "match-context"
+_MATCH_CONTEXT_SCORE = 1.0
+
+
+def scored_match_context(match_context: str) -> ScoredChunk | None:
+    """결과 채팅용 합성 청크. 비어 있으면 None."""
+    text = (match_context or "").strip()
+    if not text:
+        return None
+    from datetime import datetime, timezone
+
+    from harag.contracts.boundaries import Chunk
+    from harag.schemas.chunk import ChunkMetadata, ChunkType
+
+    body = (
+        "매칭 안내\n"
+        "아래는 안내 단계에서 확정된 증상·상품 매칭 사실이다. "
+        "장점·왜·추천 이유·연결 질문에는 이 사실로 증상·담보 연결을 설명하라.\n\n"
+        + text[:4000]
+    )
+    meta = ChunkMetadata(
+        chunk_id=MATCH_CONTEXT_CHUNK_ID,
+        document_id="match-context",
+        source_block_ids=["match-context"],
+        struct_path="매칭안내",
+        chunk_type=ChunkType.body,
+        security_level="internal",
+        acl_tags=["scope:library", "lib:knowledge"],
+        source_document="매칭 안내",
+        citation_label="매칭 안내",
+        parsing_version="match-1",
+        chunking_version="match-1",
+        embedding_model_id="none",
+        content_hash="match-context",
+        created_at=datetime.now(timezone.utc),
+    )
+    return ScoredChunk(
+        chunk=Chunk(meta=meta, text=body), score=_MATCH_CONTEXT_SCORE)
+
+
+def prepend_match_context(
+    results: list[ScoredChunk], match_context: str | None,
+) -> list[ScoredChunk]:
+    sc = scored_match_context(match_context or "")
+    if sc is None:
+        return results
+    # 동일 id 중복 방지
+    rest = [
+        r for r in results
+        if getattr(r.chunk.meta, "chunk_id", "") != MATCH_CONTEXT_CHUNK_ID
+    ]
+    return [sc] + rest
+
+
+class _MatchModePrompt:
+    """match_context 있을 때 LLM 시스템 지시 일시 보강."""
+
+    def __init__(self, generator, enabled: bool):
+        self._generator = generator
+        self._enabled = enabled
+        self._llm = None
+        self._prev = None
+
+    def __enter__(self):
+        if not self._enabled:
+            return self
+        llm = getattr(self._generator, "_llm", None)
+        if llm is None or not hasattr(llm, "_system_instruction"):
+            return self
+        from harag.generation.llm_client import ExternalLLMClient
+        addendum = getattr(
+            ExternalLLMClient, "MATCH_CONTEXT_ADDENDUM", "") or ""
+        if not addendum:
+            return self
+        self._llm = llm
+        self._prev = llm._system_instruction
+        if addendum not in (self._prev or ""):
+            llm._system_instruction = (self._prev or "") + addendum
+        return self
+
+    def __exit__(self, *exc):
+        if self._llm is not None and self._prev is not None:
+            self._llm._system_instruction = self._prev
+        return False
+
+
 class QueryPipelineImpl:
     def __init__(self, retriever, generator, reranker=None, rewriter=None,
                  top_k: int = 20, under_load_inflight: int = 4,
@@ -99,10 +185,11 @@ class QueryPipelineImpl:
     async def answer(self, query: str, auth: AuthContext,
                      conversation_id: str | None,
                      document_id: str | None = None,
-                     document_ids: list[str] | None = None) -> AnswerResult:
+                     document_ids: list[str] | None = None,
+                     match_context: str | None = None) -> AnswerResult:
         return await asyncio.to_thread(
             self._answer_sync, query, auth, conversation_id,
-            document_id, document_ids)
+            document_id, document_ids, match_context)
 
     def _retrieve_sync(self, query: str, auth: AuthContext,
                        conversation_id: str | None,
@@ -221,7 +308,8 @@ class QueryPipelineImpl:
     def _answer_sync(self, query: str, auth: AuthContext,
                      conversation_id: str | None,
                      document_id: str | None = None,
-                     document_ids: list[str] | None = None) -> AnswerResult:
+                     document_ids: list[str] | None = None,
+                     match_context: str | None = None) -> AnswerResult:
         hard = _scan_query_hard(query)
         if hard is not None:
             tid = current_trace_id() or "local"
@@ -250,7 +338,9 @@ class QueryPipelineImpl:
             results, tr = self._retrieve_sync(
                 query, auth, conversation_id,
                 document_id=document_id, document_ids=document_ids)
-            result = self._generate_sync(query, results, conversation_id)
+            results = prepend_match_context(results, match_context)
+            with _MatchModePrompt(self._generator, bool((match_context or "").strip())):
+                result = self._generate_sync(query, results, conversation_id)
             est = max(len(query) // 2, 1)
             if result.answer:
                 est += len(result.answer) // 2
@@ -268,6 +358,12 @@ class QueryPipelineImpl:
                        conversation_id: str | None) -> AnswerResult:
         try:
             gen = self._generator.generate(query=query, context=results)
+            if gen.abstained and gen.abstain_reason == "empty_context":
+                logger.warning(
+                    "abstain empty_context (sync) hits=%d — "
+                    "index empty or still seeding; RAG withheld",
+                    len(results),
+                )
         except CostLimitError as e:
             logger.warning("LLM cost limit: %s", e)
             return AnswerResult(answer=None, abstained=True,
@@ -294,6 +390,7 @@ class QueryPipelineImpl:
                             conversation_id: str | None,
                             document_id: str | None = None,
                             document_ids: list[str] | None = None,
+                            match_context: str | None = None,
                             ) -> AsyncIterator[StreamEvent]:
         hard = _scan_query_hard(query)
         if hard is not None:
@@ -307,24 +404,44 @@ class QueryPipelineImpl:
 
         def _retrieve_counted():
             with _INFLIGHT:
-                return self._retrieve_sync(
+                results, tr = self._retrieve_sync(
                     query, auth, conversation_id,
                     document_id=document_id, document_ids=document_ids)
+                results = prepend_match_context(results, match_context)
+                return results, tr
 
         results, tr = await asyncio.to_thread(_retrieve_counted)
         pre = self._generator.precheck(results)
         if pre is not None:
+            reason = pre.abstain_reason or "no_answer"
+            if reason == "empty_context":
+                n_pts = None
+                count_fn = getattr(self._store, "count_for_owner", None)
+                if callable(count_fn):
+                    try:
+                        n_pts = int(count_fn(list(auth.acl_tags) or []) or 0)
+                    except Exception:  # noqa: BLE001
+                        n_pts = None
+                logger.warning(
+                    "abstain empty_context trace_id=%s acl_hits=%s "
+                    "(0 → index empty or still seeding; RAG withheld)",
+                    getattr(tr, "trace_id", None) or current_trace_id(),
+                    n_pts,
+                )
             fake = AnswerResult(answer=None, abstained=True,
-                                abstain_reason=pre.abstain_reason or "no_answer",
+                                abstain_reason=reason,
                                 context_chunks=[])
             self._audit("abstain", auth, tr, fake, token_estimate=len(query) // 2)
-            yield StreamEvent(kind="abstain", data=pre.abstain_reason or "no_answer")
+            yield StreamEvent(kind="abstain", data=reason)
             return
 
-        token_iter = self._generator.stream_tokens(query, results)
+        match_on = bool((match_context or "").strip())
+        with _MatchModePrompt(self._generator, match_on):
+            token_iter = self._generator.stream_tokens(query, results)
         if token_iter is None:
-            result = await asyncio.to_thread(
-                self._generate_sync, query, results, conversation_id)
+            with _MatchModePrompt(self._generator, match_on):
+                result = await asyncio.to_thread(
+                    self._generate_sync, query, results, conversation_id)
             est = max(len(query) // 2, 1)
             if result.answer:
                 est += len(result.answer) // 2

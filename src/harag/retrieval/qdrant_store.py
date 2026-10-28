@@ -521,3 +521,9 @@ class QdrantVectorStore:
             key="acl_tags", match=models.MatchAny(any=acl_tags))])
         with self._lock:
             return self.client.count(self.coll, count_filter=flt, exact=True).count
+
+    def count_for_document(self, document_id: str) -> int:
+        flt = models.Filter(must=[models.FieldCondition(
+            key="document_id", match=models.MatchValue(value=document_id))])
+        with self._lock:
+            return self.client.count(self.coll, count_filter=flt, exact=True).count

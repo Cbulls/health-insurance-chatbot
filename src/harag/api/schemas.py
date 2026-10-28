@@ -11,6 +11,8 @@ class QueryRequest(BaseModel):
     conversation_id: Optional[str] = None
     document_id: Optional[str] = Field(default=None, max_length=64)
     document_ids: list[str] = Field(default_factory=list, max_length=8)
+    # 결과 채팅: guidance의 why·상품 요약·매칭 담보 (PDF에 없는 매칭 사실)
+    match_context: str = Field(default="", max_length=4000)
 
 
 class Citation(BaseModel):

@@ -59,6 +59,16 @@ class ExternalLLMClient:
         "문서에 근거가 없으면 추측하지 말고 모른다고 답하라."
     )
 
+    # 결과 채팅: 매칭 안내 청크가 있을 때 시스템 보강
+    MATCH_CONTEXT_ADDENDUM = (
+        " 컨텍스트에 '매칭 안내'가 있으면 장점·왜·추천 이유·연결 류 질문은 "
+        "그 안내의 증상·담보·상품 요약 연결로 친절히 답하라. "
+        "가입 권유·타사 과장 비교는 하지 마라. "
+        "금액·한도·기간·비율 등 수치는 상품요약서 청크와 [문서 N]만 사용하라. "
+        "매칭 안내에 있는 사실만으로도 장점·연결을 설명할 수 있으면 "
+        "『문서에 장점이 없다』고 회피하지 마라."
+    )
+
     def __init__(self, transport: Transport, model: str,
                  max_cost_per_query_usd: float = 0.50,
                  cost_per_1k_tokens: float = 0.01,

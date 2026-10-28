@@ -53,9 +53,16 @@ const WHY_ASK_SUGGESTS = [
   "상품요약서에서 뭘 더 확인하면 되나요?",
 ];
 
+const RESULT_CHAT_SUGGESTS = [
+  "이 상품들이 증상과 어떻게 연결되나요?",
+  "추천된 상품의 매칭 이유를 알려주세요.",
+  "통원·입원·검사 담보는 어떻게 안내되나요?",
+];
+
 let resultChatConvId = null;
 let resultChatBusy = false;
 let resultChatDocIds = [];
+let lastGuidanceMatch = "";
 
 function setBrochurePanelOpen(open) {
   if (!brochurePanel || !kbCountBtn) return;
@@ -715,18 +722,42 @@ function productCompareHtml(products) {
     "</div>";
 }
 
+function buildMatchContext(data) {
+  const parts = [];
+  const why = String((data && data.explanation_why) || "").trim();
+  if (why) parts.push("【왜 이 보험인가요】\n" + why);
+  const products = (data && data.products) || [];
+  for (const p of products) {
+    if (!p) continue;
+    const insurer = String(p.insurer || "").trim();
+    const name = String(p.display_name || p.name || "").trim();
+    const summary = String(p.summary || "").trim();
+    const covs = (p.matched_coverages || [])
+      .map((c) => String(c || "").trim())
+      .filter(Boolean)
+      .join(", ");
+    const head = [insurer, name].filter(Boolean).join(" ");
+    const lines = [];
+    if (head) lines.push("【상품】" + head);
+    if (summary) lines.push("요약: " + summary);
+    if (covs) lines.push("매칭 담보: " + covs);
+    if (lines.length) parts.push(lines.join("\n"));
+  }
+  return parts.join("\n\n").slice(0, 4000);
+}
+
 function resultChatHtml() {
-  const chips = WHY_ASK_SUGGESTS.map((q) =>
+  const chips = RESULT_CHAT_SUGGESTS.map((q) =>
     `<button type="button" class="chip result-chat-suggest">${escapeHtml(q)}</button>`
   ).join("");
   return (
     "<div class='result-chat' id='resultChat'>" +
     "<h3>더 궁금한 점이 있으면 물어보세요</h3>" +
-    "<p class='muted'>위에서 고른 상품요약서만 검색합니다. 가입을 권유하지 않습니다.</p>" +
+    "<p class='muted'>추천 매칭 이유와 상품요약서를 함께 참고합니다. 가입을 권유하지 않습니다.</p>" +
     "<div class='ask-suggest result-chat-suggests'>" + chips + "</div>" +
     "<div class='result-chat-messages' id='resultChatMessages'></div>" +
     "<form class='result-chat-form' id='resultChatForm'>" +
-    "<textarea id='resultChatInput' rows='2' placeholder='예: 이 상품에서 통원 담보는 어떻게 안내되나요?'></textarea>" +
+    "<textarea id='resultChatInput' rows='2' placeholder='예: 삼성 상품이 증상과 어떻게 연결되나요?'></textarea>" +
     "<button type='submit' id='resultChatSend' class='primary-btn'>보내기</button>" +
     "</form>" +
     "</div>"
@@ -812,6 +843,7 @@ function renderGuidance(data) {
   resultChatDocIds = (data.products || [])
     .map((p) => p && p.document_id)
     .filter(Boolean);
+  lastGuidanceMatch = buildMatchContext(data);
   guideResult.innerHTML =
     productCompareHtml(data.products) +
     (why
@@ -910,6 +942,7 @@ async function sendResultChat(query) {
       query,
       conversationId: resultChatConvId || newConversationId(),
       documentIds: resultChatDocIds,
+      matchContext: lastGuidanceMatch || undefined,
       onStart: () => addResultMessage("bot", ""),
       scrollEl: () => document.getElementById("resultChatMessages"),
     });
@@ -1318,7 +1351,8 @@ async function streamAnswer(query) {
 }
 
 async function streamAnswerInto({
-  query, conversationId: convId, documentId, documentIds, onStart, scrollEl,
+  query, conversationId: convId, documentId, documentIds, matchContext,
+  onStart, scrollEl,
 }) {
   const startedMsg = onStart();
   const wrap = startedMsg.wrap;
@@ -1341,6 +1375,7 @@ async function streamAnswerInto({
     };
     if (documentId) body.document_id = documentId;
     if (documentIds && documentIds.length) body.document_ids = documentIds;
+    if (matchContext) body.match_context = matchContext;
     const res = await fetch(`${API}/v1/query/stream`, {
       method: "POST",
       headers: headers({ "Content-Type": "application/json" }),

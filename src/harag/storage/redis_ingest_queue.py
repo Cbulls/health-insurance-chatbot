@@ -158,6 +158,9 @@ class RedisIngestQueue:
                 streams={self._stream: ">"}, count=1,
                 block=max(1, timeout_sec) * 1000,
             )
+        except TimeoutError:
+            # Empty poll when block ≈ socket_timeout (benign).
+            return None
         except Exception:  # noqa: BLE001
             logger.exception("xreadgroup failed")
             return None

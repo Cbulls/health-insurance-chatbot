@@ -10,6 +10,7 @@ from harag.security.injection import check_output_for_canary
 
 _NO_EVIDENCE_RE = re.compile(
     r"(정보를 찾을 수 없|정보가 (없|나와\s*있지 않|포함되어 있지 않)"
+    r"|기재되어 있지 않|관련 내용이 .{0,24}있지 않"
     r"|근거가 없|언급되어 있지 않|알 수 없습니다|모릅니다|모른다고?\b)")
 
 

@@ -448,12 +448,22 @@ body {
   .sidebar {
     position: fixed;
     left: 0; top: 0; bottom: 0;
-    width: var(--sidebar-w);
+    width: min(var(--sidebar-w), 86vw);
     transform: translateX(-105%);
     transition: transform 0.2s ease;
+    z-index: 40;
   }
   .sidebar.open { transform: translateX(0); }
-  .menu-btn { display: inline-flex; }
+  .menu-btn { display: inline-flex; min-height: 44px; min-width: 44px; }
   .sidebar-backdrop:not([hidden]) { display: block; }
   .chat-header, .messages, .composer { padding-left: 16px; padding-right: 16px; }
+  .composer { flex-wrap: wrap; }
+  .composer textarea { min-width: 0; flex: 1 1 100%; }
+  .composer button { min-height: 44px; }
+}
+
+@media (max-width: 480px) {
+  body { overflow-x: hidden; }
+  .chat-header h1, .guide-body h1 { font-size: 1.25rem; }
+  .messages { padding-left: 12px; padding-right: 12px; }
 }

@@ -51,6 +51,17 @@ def _has_library_vectors(store) -> bool:
         return False
 
 
+def _document_has_vectors(store, document_id: str) -> bool:
+    """True only when this document_id already has points (partial seed safe)."""
+    fn = getattr(store, "count_for_document", None)
+    if callable(fn):
+        try:
+            return int(fn(document_id) or 0) > 0
+        except Exception:  # noqa: BLE001
+            logger.info("document vector count failed id=%s", document_id[:12])
+    return False
+
+
 def _ensure_collection(meta):
     rec = meta.get_collection_by_slug(SEED_SLUG)
     if rec is not None:
@@ -69,7 +80,11 @@ def seed_demo_brochures(ingest, store, demo_dir: Path | None = None) -> int:
     if not root.is_dir():
         logger.info("demo_pdfs missing at %s — skip seed", root)
         return 0
-    pdfs = sorted(p for p in root.glob("*.pdf") if p.is_file())
+    # Smallest first — fewer chunks before Gemini TPM window fills.
+    pdfs = sorted(
+        (p for p in root.glob("*.pdf") if p.is_file()),
+        key=lambda p: p.stat().st_size,
+    )
     if not pdfs:
         logger.info("demo_pdfs empty — skip seed")
         return 0
@@ -77,11 +92,22 @@ def seed_demo_brochures(ingest, store, demo_dir: Path | None = None) -> int:
     coll = _ensure_collection(meta)
     tags = library_seed_tags()
     have_vecs = _has_library_vectors(store)
+    if not have_vecs:
+        logger.warning(
+            "Qdrant library vectors empty — seeding %d demo PDF(s); "
+            "RAG will abstain (empty_context) until seed finishes",
+            len(pdfs),
+        )
     done = 0
-    for path in pdfs:
+    for i, path in enumerate(pdfs):
         doc_id = _file_id(path)
         rec = meta.get_for_owner(doc_id, SEED_OWNER)
-        if rec is not None and rec.status == "ready" and have_vecs:
+        if (
+            rec is not None
+            and rec.status == "ready"
+            and have_vecs
+            and _document_has_vectors(store, doc_id)
+        ):
             logger.info("demo seed skip ready %s", path.name)
             upsert_catalog_profile(meta, doc_id, SEED_OWNER, path.name)
             done += 1
@@ -90,6 +116,10 @@ def seed_demo_brochures(ingest, store, demo_dir: Path | None = None) -> int:
             doc_id, path.name, SEED_OWNER,
             scope="library", collection_id=coll.id)
         try:
+            logger.info(
+                "demo seed indexing %s (%d/%d, %d bytes)",
+                path.name, i + 1, len(pdfs), path.stat().st_size,
+            )
             ingest.process(
                 doc_id, path.read_bytes(), path.name, SEED_OWNER,
                 acl_tags=tags)

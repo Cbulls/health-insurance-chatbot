@@ -43,11 +43,13 @@ def get_redis(url: str) -> Any | None:
         return None
 
     try:
+        # socket_timeout must exceed XREADGROUP block (worker uses 5s) or
+        # blocking polls raise TimeoutError and spam the log.
         client = redis.Redis.from_url(
             url,
             decode_responses=True,
             socket_connect_timeout=2,
-            socket_timeout=5,
+            socket_timeout=15,
             health_check_interval=30,
             max_connections=20,
         )
