@@ -130,6 +130,28 @@ class HiraStats:
                 out.append(row)
         return out
 
+    def lookup_kcds(self, kcds: list[str], age_band: str | None = None,
+                    sex: str | None = None,
+                    labels: list[str] | None = None) -> list[dict]:
+        """닫힌 KCD 목록만 조회 (클러스터 코호트용)."""
+        seen: set[str] = set()
+        out: list[dict] = []
+        labs = list(labels or [])
+        for raw in kcds or []:
+            kcd = str(raw or "").strip()
+            key = normalize_kcd(kcd)
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            row = self._one(
+                {"kcd": kcd, "name": kcd},
+                age_band=age_band, sex=sex, labels=labs)
+            if row:
+                out.append(row)
+            if len(out) >= MAX_STATS:
+                break
+        return out
+
     def _one(self, cond: dict, age_band: str | None, sex: str | None,
              labels: list[str]) -> dict | None:
         cached = load_cache(cond["kcd"])
@@ -158,6 +180,9 @@ class HiraStats:
             total_i = int(total) if total is not None else None
         except (TypeError, ValueError):
             total_i = None
+        note = str(data.get("note") or "").strip()
+        if live is None and not note:
+            note = "저장본. 시연용 참고 규모이며 실시간 공식 수치가 아님."
         return {
             "kcd": cond["kcd"],
             "name": data.get("name") or cond["name"],
@@ -167,6 +192,7 @@ class HiraStats:
             "coverage_link": _coverage_link(share_f, labels),
             "source": data.get("source") or SOURCE,
             "cached": live is None,
+            "note": note if live is None else "",
         }
 
     def _try_live(self, kcd: str) -> dict | None:

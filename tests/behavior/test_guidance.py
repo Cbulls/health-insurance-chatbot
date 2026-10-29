@@ -39,11 +39,16 @@ def test_unsupported_symptom_abstains():
 
 def test_solicit_phrase_blocked():
     text, flags = guard_text(
-        "실손 통원을 가입하세요. 추천합니다.",
+        "실손 통원을 가입하세요. 가입을 추천합니다.",
         ["실손 통원"])
     assert "solicit_blocked" in flags
     assert "가입하세요" not in text
-    assert "추천합니다" not in text
+    assert "가입을 추천" not in text
+    ok, ok_flags = guard_text(
+        "이 상황에 맞춰 비교 추천합니다. 실손 통원을 살펴보시면 됩니다.",
+        ["실손 통원"])
+    assert "solicit_blocked" not in ok_flags
+    assert "비교 추천합니다" in ok
 
 
 def test_diagnosis_phrase_blocked():
@@ -56,6 +61,21 @@ def test_diagnosis_phrase_blocked():
     assert DISCLAIMER in text
 
 
+def test_disclaimer_keeps_negative_hwakjin():
+    """면책의 「확진이 아닙니다」는 가드가 깨뜨리지 않는다."""
+    text, flags = guard_text(
+        "실손 통원을 살펴보시면 됩니다.\n\n" + DISCLAIMER,
+        ["실손 통원"])
+    assert "diagnosis_blocked" not in flags
+    assert "확진이 아닙니다" in text
+    assert "뿐 이 아닙니다" not in text
+    blocked, bflags = guard_text(
+        "확진됩니다. 실손 통원으로 해결됩니다.",
+        ["실손 통원"])
+    assert "diagnosis_blocked" in bflags
+    assert "확진됩니다" not in blocked
+
+
 def test_why_fallback_honorific_and_two_types():
     g = GuidanceService().guide(
         "", symptom_codes=["cough", "night_sweat"], concern="inpatient")
@@ -63,21 +83,38 @@ def test_why_fallback_honorific_and_two_types():
     assert "습니다" in g.explanation_why
     assert "자주 느끼는" in g.explanation_why
     assert "놓치기 쉬운" in g.explanation_why
+    assert "## 공공데이터 해석" in g.explanation_why
+    assert "## 주의·참고" in g.explanation_why
+    assert "## 비교할 상품 2개" in g.explanation_why
+    assert "confidence" not in g.explanation_why
+    assert "확진이 아닙니다" in g.explanation_why
+    assert "뿐 이 아닙니다" not in g.explanation_why
+    assert "질병관리청" in g.explanation_why
+    assert "건강보험심사평가원" in g.explanation_why
+    assert "참고용 안내입니다" not in g.explanation_why
+    assert "(R" not in g.explanation_why
+    assert "R05" not in g.explanation_why
+    cough = next(s for s in g.profile["symptoms"] if s["code"] == "cough")
+    ov = cough.get("portal_overview", {}) or {}
+    assert ov.get("text")
+    assert "참고용 안내" not in (ov.get("text") or "")
     assert g.explanation_caution == ""
+    # stats 미주입 시 비움; Hira 연동 계약은 test_hira_stats
     assert g.ref_stats == []
     assert "[문서" not in g.explanation_why
     assert "[진단 단정 삭제]" not in g.explanation
 
 
+def test_portal_overviews_have_no_filler():
+    from harag.guidance.lexicon import load_kb
+
+    for code, spec in (load_kb().get("symptoms") or {}).items():
+        text = ((spec.get("portal_overview") or {}).get("text") or "")
+        assert "참고용 안내" not in text, code
+        assert "참고 정보입니다" not in text, code
+
+
 def test_why_fallback_mentions_matched_products():
-    class Pipe:
-        def _retrieve_sync(self, q, auth, cid):
-            return ([], object())
-
-        @property
-        def metadata_store(self):
-            return None
-
     # pipeline+auth만으로는 빈 products — 폴백에 상품을 직접 주입하려면
     # guide 경로의 _explain을 products와 함께 호출하는 대신 서비스 결과 후처리 없이
     # _why_fallback 단위로 검증한다.
@@ -92,20 +129,26 @@ def test_why_fallback_mentions_matched_products():
     }])
     assert "테스트건강보험" in text
     assert "실손 통원" in text
-    assert "관련이 있습니다" in text
+    assert "## 비교할 상품 2개" in text
+    assert "비교하기 좋습니다" in text
 
 
 def test_why_strips_doc_markers():
     class MarkerLLM:
         def complete(self, q, ctx, cites):
             return (
-                "## 맞는 이유\n"
+                "## 공공데이터 해석\n"
+                "자주 느끼는 증상과 놓치기 쉬운 불편을 함께 반영했습니다.\n"
+                "## 주의·참고\n"
+                "확진이 아닙니다.\n"
+                "## 비교할 상품 2개\n"
                 "실손 통원은 증상과 관련이 있습니다 [문서 1].\n",
                 None)
 
     g = GuidanceService(llm=MarkerLLM()).guide(
         "", symptom_codes=["cough"])
     assert "[문서" not in g.explanation_why
+    assert "## 공공데이터 해석" in g.explanation_why
     assert "관련이 있습니다" in g.explanation_why
 
 
@@ -123,8 +166,9 @@ def test_guide_template_has_overlap_not_age_band():
     g = GuidanceService().guide(
         "허리가 아파요", occupation="office", concern="outpatient",
         age_band="40-49")
+    # 상황 브리프에는 선택 연령 라벨을 쓰되, 「당신 연령대」식 추정 문구는 쓰지 않는다.
     assert "당신 연령대" not in g.explanation
-    assert "40대" not in g.explanation
+    assert "40대" in g.explanation_why
 
 
 def test_guide_template_has_disclaimer_and_no_company():
@@ -317,9 +361,9 @@ def test_product_cards_from_retrieve_and_no_raw_in_query():
         sex="male",
         auth=object(),
     )
-    assert len(g.products) == 3
+    assert len(g.products) == 2
     titles = [p["title"] for p in g.products]
-    assert titles == ["실손A.pdf", "실손B.pdf", "실손C.pdf"]
+    assert titles == ["실손A.pdf", "실손B.pdf"]
     assert g.products[0]["citation_label"] == "실손A p.3"
     assert g.products[0]["snippet"] == ""
     assert "실손 통원" in g.products[0]["matched_coverages"]
@@ -388,6 +432,25 @@ def test_library_ready_fills_when_retrieve_empty():
     assert card["snippet"] == ""
 
 
+def test_library_ready_caps_at_two_products():
+    class Pipe:
+        _metadata = _LibMeta([
+            _LibRow("lib1", "a.pdf"),
+            _LibRow("lib2", "b.pdf"),
+            _LibRow("lib3", "c.pdf"),
+        ])
+
+        def _retrieve_sync(self, q, auth, cid):
+            return ([], object())
+
+    g = GuidanceService(pipeline=Pipe()).guide(
+        "", symptom_codes=["headache"], concerns=["inpatient", "tests"],
+        occupation="field", auth=object())
+    assert len(g.products) <= 2
+    assert len(g.products) == 2
+    assert "## 비교할 상품 2개" in g.explanation_why
+
+
 def test_retrieve_hit_title_is_filename_and_outranks_library():
     class Pipe:
         _metadata = _LibMeta([
@@ -439,3 +502,59 @@ def test_unspecified_sex_not_in_query():
     assert "남성" not in queries[0]
     assert "여성" not in queries[0]
     assert "응답 안 함" not in queries[0]
+
+
+def test_symptom_cluster_fatigue_headache_numbness():
+    from harag.guidance.clusters import match_symptom_clusters
+
+    miss = match_symptom_clusters(["fatigue", "headache"])
+    assert miss == []
+    hits = match_symptom_clusters(["fatigue", "headache", "numbness"])
+    assert len(hits) == 1
+    assert hits[0]["id"] == "fatigue_headache_numbness"
+    fams = hits[0]["related_families"]
+    assert fams
+    assert all(f.get("example_kcds") for f in fams)
+    assert "전조" not in (hits[0].get("label") or "")
+
+
+def test_guide_returns_symptom_clusters_and_fallback_copy():
+    g = GuidanceService().guide(
+        "",
+        symptom_codes=["fatigue", "headache", "numbness"],
+        occupation="field",
+        age_band="20-29",
+        sex="male",
+    )
+    assert not g.abstained
+    assert g.symptom_clusters
+    assert g.symptom_clusters[0]["id"] == "fatigue_headache_numbness"
+    why = g.explanation_why or ""
+    assert "관련 가능 영역" in why
+    assert "질병관리청" in why
+    assert "확진이 아닙니다" in why
+    assert "직업별 질환 통계는 아직" in why
+    assert "유병률" not in why
+    assert "전조 증상" not in why
+    assert "(R" not in why
+    assert "참고용 안내입니다" not in why
+
+
+def test_guard_blocks_precursor_and_risk_wording():
+    text, flags = guard_text(
+        "당뇨 전조입니다. 위험성이 높습니다. 실손 통원을 살펴보시면 됩니다.",
+        ["실손 통원"])
+    assert "risk_claim_blocked" in flags
+    assert "전조입니다" not in text
+    assert "위험성" not in text
+
+
+def test_guard_strips_kcd_paren_and_filler():
+    text, flags = guard_text(
+        "권태 및 피로(R53)를 참고합니다. 참고용 안내입니다. 실손 통원을 살펴보시면 됩니다.",
+        ["실손 통원"])
+    assert "kcd_code_stripped" in flags
+    assert "filler_ref_stripped" in flags
+    assert "(R53)" not in text
+    assert "참고용 안내입니다" not in text
+    assert "권태 및 피로" in text

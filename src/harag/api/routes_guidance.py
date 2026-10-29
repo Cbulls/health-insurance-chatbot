@@ -7,8 +7,8 @@ from harag.api.middleware import current_trace_id
 from harag.api.ratelimit import enforce_rate_limit
 from harag.api.schemas import (
     AssessRequest, AssessResponse, GuidanceRequest, GuidanceResponse,
-    AreaItem, CoverageItem, ProductCard, RefStat, SymptomItem, PurgeRequest,
-    PurgeResponse,
+    AreaItem, CoverageItem, ProductCard, RefStat, SymptomCluster,
+    SymptomItem, PurgeRequest, PurgeResponse,
 )
 from harag.contracts.boundaries import AuthContext
 
@@ -58,6 +58,9 @@ async def guidance(
         coverages=[CoverageItem(**c) for c in result.coverages],
         products=[ProductCard(**p) for p in result.products],
         ref_stats=[RefStat(**s) for s in result.ref_stats],
+        symptom_clusters=[
+            SymptomCluster(**c) for c in result.symptom_clusters],
+        cluster_stats=[RefStat(**s) for s in result.cluster_stats],
         explanation=result.explanation,
         explanation_why=result.explanation_why,
         explanation_caution=result.explanation_caution,

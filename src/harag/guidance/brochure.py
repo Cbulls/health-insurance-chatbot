@@ -67,7 +67,7 @@ def sanitize_brochure_payload(raw: dict | None, filename: str = "") -> dict:
     cost = cleaned.get("cost_nature")
     if cost not in COST_NATURES:
         cost = ""
-    summary = str(cleaned.get("summary") or "").strip()[:400]
+    summary = str(cleaned.get("summary") or "").strip()[:900]
     insurer = str(cleaned.get("insurer") or "").strip()[:40]
     source_url = _safe_http_url(cleaned.get("source_url"))
     if cleaned.get("filled_by") == "llm":

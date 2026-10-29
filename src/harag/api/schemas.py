@@ -100,11 +100,17 @@ class RefCondition(BaseModel):
     source: str = ""
 
 
+class PortalOverview(BaseModel):
+    text: str = ""
+    source: str = ""
+
+
 class SymptomItem(BaseModel):
     code: str
     label: str
     type: str = "usual"
     ref_conditions: list[RefCondition] = Field(default_factory=list)
+    portal_overview: PortalOverview | None = None
 
 
 class AssessResponse(BaseModel):
@@ -169,6 +175,24 @@ class RefStat(BaseModel):
     coverage_link: str = ""
     source: str = "건강보험심사평가원 질병정보서비스"
     cached: bool = True
+    note: str = ""
+
+
+class RelatedFamily(BaseModel):
+    id: str = ""
+    label: str = ""
+    example_kcds: list[str] = Field(default_factory=list)
+    rationale_source: str = ""
+    blurb: str = ""
+
+
+class SymptomCluster(BaseModel):
+    id: str
+    label: str = ""
+    matched_symptoms: list[str] = Field(default_factory=list)
+    related_families: list[RelatedFamily] = Field(default_factory=list)
+    care_hint: str = ""
+    occupation_note: str = ""
 
 
 class ProductCard(BaseModel):
@@ -194,6 +218,8 @@ class GuidanceResponse(BaseModel):
     coverages: list[CoverageItem] = Field(default_factory=list)
     products: list[ProductCard] = Field(default_factory=list)
     ref_stats: list[RefStat] = Field(default_factory=list)
+    symptom_clusters: list[SymptomCluster] = Field(default_factory=list)
+    cluster_stats: list[RefStat] = Field(default_factory=list)
     explanation: str = ""
     explanation_why: str = ""
     explanation_caution: str = ""

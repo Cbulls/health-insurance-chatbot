@@ -84,7 +84,7 @@ class BrochureProfile(Base):
     product_line: Mapped[str] = mapped_column(String(32), default="other")
     doc_kind: Mapped[str] = mapped_column(String(32), default="")
     cost_nature: Mapped[str] = mapped_column(String(32), default="")
-    summary: Mapped[str] = mapped_column(String(400), default="")
+    summary: Mapped[str] = mapped_column(String(900), default="")
     insurer: Mapped[str] = mapped_column(String(40), default="")
     source_url: Mapped[str] = mapped_column(String(512), default="")
     filled_by: Mapped[str] = mapped_column(String(16), default="catalog")
@@ -633,7 +633,7 @@ class MetadataStore:
         line = str(payload.get("product_line") or "other")[:32]
         kind = str(payload.get("doc_kind") or "")[:32]
         cost = str(payload.get("cost_nature") or "")[:32]
-        summary = str(payload.get("summary") or "")[:400]
+        summary = str(payload.get("summary") or "")[:900]
         insurer = str(payload.get("insurer") or "")[:40]
         source_url = str(payload.get("source_url") or "")[:512]
         filled = str(payload.get("filled_by") or "catalog")[:16]

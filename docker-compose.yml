@@ -76,7 +76,12 @@ services:
       - harag_spool:/app/spool
       # 호스트 PDF를 덮어쓸 때(이미지 COPY 외에 개발·배포 갱신용)
       - ./demo_pdfs:/app/demo_pdfs:ro
+      # 개발 중 RESULT UI·KB·서비스 변경이 재빌드 없이 반영되도록
+      - ./frontend:/app/frontend:ro
+      - ./src:/app/src:ro
     environment:
+      # site-packages보다 호스트 src를 우선 (마운트된 guidance/KB 반영)
+      PYTHONPATH: /app/src
       QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
       QDRANT_API_KEY: ${QDRANT_API_KEY:-}
       QDRANT_COLLECTION: ${QDRANT_COLLECTION:-harag_pdf_mvp}
