@@ -134,6 +134,7 @@ class Settings:
 
     # ── 리랭커 ──
     # enabled + URL → HttpCrossEncoder(TEI). URL 없으면 Lexical 폴백(데모).
+    # provider=jina 이면 Jina /v1/rerank (API 키=EMBEDDING_API_KEY 재사용).
     rerank_enabled: bool
     reranker_server_url: str
     rerank_top_n: int
@@ -198,6 +199,17 @@ class Settings:
     object_store_bucket: str = "harag-originals"
     object_store_region: str = "us-east-1"
     ocr_scan_ratio_threshold: float = 0.15
+    # Jina 등 task LoRA: 적재=retrieval.passage, 질의=retrieval.query.
+    # 비우면 /embeddings에 task를 보내지 않음(OpenAI·Gemini 호환).
+    embedding_task_document: str = ""
+    embedding_task_query: str = ""
+    reranker_provider: str = ""      # "jina" | "" (TEI URL / lexical)
+    rerank_model: str = "jina-reranker-v3.5"
+    # pdfplumber | jina_ocr — jina_ocr는 페이지 이미지를 jina-ocr-v1로 전사.
+    pdf_parser: str = "pdfplumber"
+    jina_ocr_model: str = "jina-ocr-v1"
+    jina_ocr_rpm: float = 80.0
+    jina_ocr_scale: float = 2.0
 
     # ── SEC-02 v2 인젝션 방어 ──
     injection_defense_enabled: bool = True
@@ -255,6 +267,8 @@ def get_settings() -> Settings:
         embedding_batch_size=_get_int("EMBEDDING_BATCH_SIZE", 4),
         embedding_tpm_budget=_get_int("EMBEDDING_TPM_BUDGET", 24000),
         embedding_max_retries=_get_int("EMBEDDING_MAX_RETRIES", 8),
+        embedding_task_document=_get("EMBEDDING_TASK_DOCUMENT", ""),
+        embedding_task_query=_get("EMBEDDING_TASK_QUERY", ""),
         llm_provider=llm_provider,
         llm_api_base=_get("LLM_API_BASE", "https://api.openai.com/v1"),
         llm_api_key=llm_key,
@@ -284,6 +298,9 @@ def get_settings() -> Settings:
         rerank_llm_model=_get("RERANK_LLM_MODEL", ""),
         rerank_enabled=_get_bool("RERANK_ENABLED", True),
         reranker_server_url=_get("RERANKER_SERVER_URL", ""),
+        reranker_provider=_get("RERANKER_PROVIDER", "").lower(),
+        rerank_model=_get("RERANK_MODEL", "jina-reranker-v3.5")
+                     or "jina-reranker-v3.5",
         rerank_top_n=_get_int("RERANK_TOP_N", 5),
         rerank_timeout_ms=_get_int("RERANK_TIMEOUT_MS", 3000),
         rerank_min_score=_get_float("RERANK_MIN_SCORE", -1.0),  # -1=어댑터별 기본
@@ -332,6 +349,10 @@ def get_settings() -> Settings:
         object_store_region=_get("OBJECT_STORE_REGION", "us-east-1")
                             or "us-east-1",
         ocr_scan_ratio_threshold=_get_float("OCR_SCAN_RATIO_THRESHOLD", 0.15),
+        pdf_parser=_get("PDF_PARSER", "pdfplumber").lower() or "pdfplumber",
+        jina_ocr_model=_get("JINA_OCR_MODEL", "jina-ocr-v1") or "jina-ocr-v1",
+        jina_ocr_rpm=_get_float("JINA_OCR_RPM", 80.0),
+        jina_ocr_scale=_get_float("JINA_OCR_SCALE", 2.0),
         injection_defense_enabled=_get_bool("INJECTION_DEFENSE_ENABLED", True),
         injection_datamark_enabled=_get_bool("INJECTION_DATAMARK_ENABLED", True),
         injection_hard_refuse_score=_get_int("INJECTION_HARD_REFUSE_SCORE", 2),
@@ -356,14 +377,18 @@ def get_settings() -> Settings:
 def resolve_rerank_defaults(settings: Settings) -> tuple[float, float]:
     """(retrieval_blend, rerank_min_score) — env -1 센티널을 어댑터별 기본으로.
 
-    HTTP CE: blend=0, min_score=settings.min_score(생성 게이트와 한 축).
+    HTTP/Jina CE: blend=0, min_score=settings.min_score(생성 게이트와 한 축).
     Lexical: blend=0.7(한↔영 붕괴 방어), min_score=0.0(겹침 0이 흔해 필터 off).
     """
-    use_http = bool(settings.rerank_enabled and settings.reranker_server_url)
+    use_ce = bool(
+        settings.rerank_enabled and (
+            settings.reranker_server_url
+            or (settings.reranker_provider or "").lower() == "jina"
+        ))
     blend = settings.retrieval_blend
     if blend < 0:
-        blend = 0.0 if use_http else 0.7
+        blend = 0.0 if use_ce else 0.7
     rmin = settings.rerank_min_score
     if rmin < 0:
-        rmin = settings.min_score if use_http else 0.0
+        rmin = settings.min_score if use_ce else 0.0
     return blend, rmin

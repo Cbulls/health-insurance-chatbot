@@ -58,5 +58,55 @@
     "cost_nature": "lump_sum",
     "summary": "흥국생명 무배당 3.N.5.N플러스간편건강보험(해약환급금미지급형V2) 상품요약서입니다. 간편심사로 진단·입원·수술·장해 특약을 선택 설계하며, 3.6.5.1·3.8.5.5 간편심사형으로도 판매됩니다. 납입기간 중 해약환급금은 미지급입니다.",
     "coverage_codes": ["outpatient", "inpatient", "injury"]
+  },
+  "한화생명_시그니처H암보험_상품요약서2610.pdf": {
+    "display_name": "한화생명 시그니처H암보험",
+    "insurer": "한화생명",
+    "source_url": "",
+    "product_line": "cancer",
+    "doc_kind": "summary",
+    "cost_nature": "lump_sum",
+    "summary": "한화생명 시그니처H암보험 무배당(2026-10) 상품요약서입니다. 사망·암 진단·치료·통원을 세분화해 맞춤 가입이 가능하며, 해약환급금 미지급형이 있습니다.",
+    "coverage_codes": ["outpatient", "inpatient", "tests"]
+  },
+  "한화생명_건강더한종신보험_상품요약서2609.pdf": {
+    "display_name": "한화생명 건강더한종신보험",
+    "insurer": "한화생명",
+    "source_url": "",
+    "product_line": "life",
+    "doc_kind": "summary",
+    "cost_nature": "lump_sum",
+    "summary": "한화생명 건강더한종신보험 무배당(2026-09) 상품요약서입니다. 종신 보장에 암·뇌·심 진단·사망과 연금전환형 Total Life Care를 안내합니다.",
+    "coverage_codes": ["outpatient", "inpatient", "injury"]
+  },
+  "한화생명_걸음e건강보험_상품요약서2604.pdf": {
+    "display_name": "한화생명 걸음e건강보험",
+    "insurer": "한화생명",
+    "source_url": "",
+    "product_line": "health",
+    "doc_kind": "summary",
+    "cost_nature": "lump_sum",
+    "summary": "한화생명 걸음e건강보험 무배당(2026-04) 상품요약서입니다. 모듈구조 상품으로 여러 주계약을 통합 청약하며, 걸음(건강증진) 할인형과 해약환급금 미지급형 모듈이 있습니다.",
+    "coverage_codes": ["outpatient", "inpatient", "injury"]
+  },
+  "한화생명_e건강보험_상품요약서2604.pdf": {
+    "display_name": "한화생명 e건강보험",
+    "insurer": "한화생명",
+    "source_url": "",
+    "product_line": "health",
+    "doc_kind": "summary",
+    "cost_nature": "lump_sum",
+    "summary": "한화생명 e건강보험 무배당(2026-04) 상품요약서입니다. 모듈구조 e계열 건강보장으로 여러 주계약을 통합 운용하며, 비갱신형 해약환급금 미지급형 모듈이 있습니다.",
+    "coverage_codes": ["outpatient", "inpatient", "injury"]
+  },
+  "NH농협생명_369새로나온NH암보험_상품요약서.pdf": {
+    "display_name": "NH농협생명 369새로나온NH암보험",
+    "insurer": "NH농협생명",
+    "source_url": "",
+    "product_line": "cancer",
+    "doc_kind": "summary",
+    "cost_nature": "lump_sum",
+    "summary": "NH농협생명 369새로나온NH암보험(무배당) 상품요약서입니다. 암검사·수술보험금을 최대 100세까지 보장하며, 일반가입형·간편가입형과 3/6/9만원형 정액 보험료를 안내합니다.",
+    "coverage_codes": ["outpatient", "inpatient", "tests"]
   }
 }

@@ -9,7 +9,7 @@ from typing import Protocol
 
 
 class _EncodeModel(Protocol):
-    def encode(self, texts: list[str]) -> list[list[float]]: ...
+    def encode(self, texts: list[str], *, task: str | None = None) -> list[list[float]]: ...
 
 
 class CachedEmbeddingModel:
@@ -31,17 +31,18 @@ class CachedEmbeddingModel:
         self.model_id = getattr(inner, "model_id", "cached")
         self.dim = getattr(inner, "dim", 0)
 
-    def _key(self, text: str) -> str:
-        return hashlib.sha256(text.encode("utf-8")).hexdigest()
+    def _key(self, text: str, task: str | None) -> str:
+        raw = f"{task or ''}\0{text}"
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
-    def encode(self, texts: list[str]) -> list[list[float]]:
+    def encode(self, texts: list[str], *, task: str | None = None) -> list[list[float]]:
         if not texts:
             return []
         # 인덱싱 배치(>1)는 캐시하지 않음
         if len(texts) != 1:
-            return self._inner.encode(texts)
+            return self._inner.encode(texts, task=task)
         text = texts[0]
-        key = self._key(text)
+        key = self._key(text, task)
         now = time.monotonic()
         with self._lock:
             hit = self._cache.get(key)
@@ -51,7 +52,7 @@ class CachedEmbeddingModel:
                     self._cache.move_to_end(key)
                     return [list(vec)]
                 del self._cache[key]
-        vecs = self._inner.encode(texts)
+        vecs = self._inner.encode(texts, task=task)
         with self._lock:
             self._cache[key] = (now, list(vecs[0]))
             self._cache.move_to_end(key)

@@ -172,6 +172,7 @@ class QdrantVectorStore:
         upsert_batch_size: int = _DEFAULT_UPSERT_BATCH,
         hybrid_prefetch_mult: int = 2,
         count_cache_ttl_s: float = _DEFAULT_COUNT_TTL_S,
+        query_embed_task: str | None = None,
     ):
         self._remote = bool(url)
         self.client = (QdrantClient(url=url, api_key=api_key or None)
@@ -180,6 +181,7 @@ class QdrantVectorStore:
         self._dim = dim
         self._embed = embedding_model
         self._morph = morph or SimpleMorph()
+        self._query_task = (query_embed_task or "").strip() or None
         self._want_hybrid = hybrid
         self._hybrid = False
         self._sparse_bytes = max(0, sparse_bytes_per_point) if hybrid else 0
@@ -456,7 +458,10 @@ class QdrantVectorStore:
     def retrieve(self, query: str, auth: AuthContext, k: int = 10,
                  document_id: str | None = None,
                  document_ids: list[str] | None = None) -> list[ScoredChunk]:
-        dense = self._embed.encode([query])[0]
+        if self._query_task:
+            dense = self._embed.encode([query], task=self._query_task)[0]
+        else:
+            dense = self._embed.encode([query])[0]
         must = [models.FieldCondition(
             key="acl_tags", match=models.MatchAny(any=list(auth.acl_tags)))]
         ids: list[str] = []
@@ -527,3 +532,50 @@ class QdrantVectorStore:
             key="document_id", match=models.MatchValue(value=document_id))])
         with self._lock:
             return self.client.count(self.coll, count_filter=flt, exact=True).count
+
+    def list_library_document_sources(
+        self, *, acl_tag: str = "lib:knowledge",
+    ) -> list[dict]:
+        """라이브러리 ACL 포인트에서 고유 document_id·파일명을 모은다.
+
+        반환: [{"document_id", "source_document", "n_chunks"}, ...]
+        메타DB 복구(reconcile)용 — 재임베딩 없음.
+        """
+        from collections import Counter
+
+        flt = models.Filter(must=[models.FieldCondition(
+            key="acl_tags", match=models.MatchAny(any=[acl_tag]))])
+        counts: Counter[str] = Counter()
+        names: dict[str, str] = {}
+        offset = None
+        with self._lock:
+            while True:
+                pts, offset = self.client.scroll(
+                    collection_name=self.coll,
+                    scroll_filter=flt,
+                    limit=256,
+                    offset=offset,
+                    with_payload=["document_id", "source_document"],
+                    with_vectors=False,
+                )
+                if not pts:
+                    break
+                for p in pts:
+                    pl = p.payload or {}
+                    doc_id = str(pl.get("document_id") or "").strip()
+                    if not doc_id:
+                        continue
+                    counts[doc_id] += 1
+                    src = str(pl.get("source_document") or "").strip()
+                    if src and doc_id not in names:
+                        names[doc_id] = src
+                if offset is None:
+                    break
+        return [
+            {
+                "document_id": doc_id,
+                "source_document": names.get(doc_id, ""),
+                "n_chunks": int(counts[doc_id]),
+            }
+            for doc_id in sorted(counts.keys())
+        ]

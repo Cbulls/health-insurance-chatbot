@@ -30,6 +30,26 @@ class DocumentParser:
 
     def __init__(self, convert: ConvertService | None = None):
         self._pdf = PdfParser()
+        self._jina_ocr = None
+        settings = get_settings()
+        if (settings.pdf_parser or "").lower() == "jina_ocr":
+            key = settings.embedding_api_key
+            if key and "jina.ai" in (settings.embedding_api_base or ""):
+                from harag.parsing.jina_ocr import JinaOcrPdfParser
+                self._jina_ocr = JinaOcrPdfParser(
+                    api_base=settings.embedding_api_base,
+                    api_key=key,
+                    model=settings.jina_ocr_model,
+                    rpm=settings.jina_ocr_rpm,
+                    scale=settings.jina_ocr_scale,
+                )
+                logger.info(
+                    "pdf parser=jina_ocr model=%s rpm=%.0f",
+                    settings.jina_ocr_model, settings.jina_ocr_rpm)
+            else:
+                logger.warning(
+                    "PDF_PARSER=jina_ocr but Jina embedding key/base missing — "
+                    "using pdfplumber")
         self._hwpx = StructuringParser(HwpxDecoder())
         self._docx_dec = DocxDecoder()
         self._docx = StructuringParser(self._docx_dec)
@@ -76,12 +96,13 @@ class DocumentParser:
 
     def _parse_pdf(self, raw, *, document_id, filename, source_system,
                    department, security_level) -> DocumentIR:
-        ir = self._pdf.parse(
+        parser = self._jina_ocr if self._jina_ocr is not None else self._pdf
+        ir = parser.parse(
             raw, document_id=document_id, filename=filename,
             source_system=source_system, department=department,
             security_level=security_level,
         )
-        self.last_fail_code = getattr(self._pdf, "last_fail_code", None)
+        self.last_fail_code = getattr(parser, "last_fail_code", None)
         return ir
 
     def _parse_hwpx(self, raw, *, document_id, filename, source_system,

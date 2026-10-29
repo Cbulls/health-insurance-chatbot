@@ -81,7 +81,8 @@ class LocalHashEmbeddingModel:
         self.dim = dim
         self.model_id = f"local-hash-{dim}"
 
-    def encode(self, texts: list[str]) -> list[list[float]]:
+    def encode(self, texts: list[str], *, task: str | None = None) -> list[list[float]]:
+        del task  # API 호환(로컬 해시는 task 무시)
         return [self._vec(t) for t in texts]
 
     def _vec(self, text: str) -> list[float]:
@@ -145,7 +146,7 @@ class ApiEmbeddingModel:
                  timeout: float = 30.0, batch_size: int = 4,
                  send_dimensions: bool = False, max_retries: int = 8,
                  tpm_budget: int = 24000, max_tokens_per_request: int = 8000,
-                 sleep=time.sleep):
+                 sleep=time.sleep, default_task: str | None = None):
         self._base = api_base.rstrip("/")
         self._key = api_key
         self.model_id = model
@@ -159,6 +160,7 @@ class ApiEmbeddingModel:
         self._tpm_budget = max(1, tpm_budget)
         self._max_tokens_per_request = max(1, max_tokens_per_request)
         self._sleep = sleep
+        self._default_task = (default_task or "").strip() or None
         # 커넥션 재사용(keep-alive) — 문서마다 새 TCP/TLS 핸드셰이크 방지.
         self._client = httpx.Client(
             base_url=self._base,
@@ -166,30 +168,43 @@ class ApiEmbeddingModel:
             timeout=timeout,
         )
 
-    def encode(self, texts: list[str]) -> list[list[float]]:
+    def encode(self, texts: list[str], *, task: str | None = None) -> list[list[float]]:
         if not texts:
             return []
+        effective = (task if task is not None else self._default_task)
+        if isinstance(effective, str):
+            effective = effective.strip() or None
         # 약관 PDF는 청크가 많아 Gemini 무료 TPM(3만/분)을 한 분에 넘긴다.
         # 배치를 토큰 상한으로 자르고, 전송 후 예산 비율만큼 쉰다.
         out: list[list[float]] = []
         for batch in _iter_token_batches(
                 texts, self._batch_size, self._max_tokens_per_request):
-            out.extend(self._encode_batch(batch))
+            out.extend(self._encode_batch(batch, task=effective))
             pause = _tpm_pause(
                 sum(_approx_tokens(t) for t in batch), self._tpm_budget)
             if pause:
                 self._sleep(pause)
         return out
 
-    def _encode_batch(self, batch: list[str]) -> list[list[float]]:
-        body = {"model": self.model_id, "input": batch}
+    def _encode_batch(self, batch: list[str], *, task: str | None = None) -> list[list[float]]:
+        body: dict = {"model": self.model_id, "input": batch}
         if self._send_dimensions:
             body["dimensions"] = self.dim
+        if task:
+            body["task"] = task
         last_err: Exception | None = None
         for attempt in range(self._max_retries + 1):
             resp = self._client.post("/embeddings", json=body)
             if resp.status_code == 200:
                 return self._parse_vectors(resp, len(batch))
+            if resp.status_code == 403:
+                detail = ""
+                try:
+                    detail = str(resp.json())
+                except Exception:  # noqa: BLE001
+                    detail = resp.text[:200]
+                raise EmbeddingRateLimitError(
+                    f"403 insufficient balance: {detail}")
             if resp.status_code == 429 or resp.status_code >= 500:
                 last_err = httpx.HTTPStatusError(
                     f"{resp.status_code} embedding",
@@ -235,8 +250,12 @@ def _retry_wait(resp: httpx.Response, attempt: int) -> float:
     return max(65.0, min(1.5 * (2 ** attempt), 70.0))
 
 
-def build_embedding_model(settings: Settings):
-    """설정에 따라 임베딩 모델 생성(운영=API, 폴백=로컬 해시)."""
+def build_embedding_model(settings: Settings, *, default_task: str | None = None):
+    """설정에 따라 임베딩 모델 생성(운영=API, 폴백=로컬 해시).
+
+    default_task는 호출부가 명시할 때만 쓴다. 적재/질의 task는
+    HybridEmbedder·QdrantVectorStore가 encode(..., task=)로 넘긴다.
+    """
     if settings.embedding_provider == "openai" and settings.embedding_api_key:
         return ApiEmbeddingModel(
             api_base=settings.embedding_api_base,
@@ -247,5 +266,6 @@ def build_embedding_model(settings: Settings):
             batch_size=settings.embedding_batch_size,
             max_retries=settings.embedding_max_retries,
             tpm_budget=settings.embedding_tpm_budget,
+            default_task=default_task,
         )
     return LocalHashEmbeddingModel(dim=settings.embedding_dim)

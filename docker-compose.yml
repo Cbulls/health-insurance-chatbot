@@ -74,6 +74,8 @@ services:
     volumes:
       - harag_data:/app/data
       - harag_spool:/app/spool
+      # 호스트 PDF를 덮어쓸 때(이미지 COPY 외에 개발·배포 갱신용)
+      - ./demo_pdfs:/app/demo_pdfs:ro
     environment:
       QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
       QDRANT_API_KEY: ${QDRANT_API_KEY:-}

@@ -47,6 +47,7 @@ def _build_and_inject() -> None:
         LexicalCrossEncoder, LLMCrossEncoder, IdentityRewriteLLM, LLMRewriteLLM,
     )
     from harag.llm.http_rerank import HttpCrossEncoder
+    from harag.llm.jina_rerank import JinaCrossEncoder
     from harag.retrieval.reranker import CrossEncoderReranker
     from harag.retrieval.rewriter import QueryRewriter, ConversationStore
     from harag.api.pipeline import QueryPipelineImpl
@@ -129,7 +130,9 @@ def _build_and_inject() -> None:
     # 적재(embedder)와 질의(store)가 반드시 같은 토크나이저를 공유해야
     # sparse 인덱스가 일치한다(kiwipiepy 설치 시 형태소, 아니면 어절 폴백).
     morph = build_morph()
-    embedder = HybridEmbedder(embedding_model, morph)
+    doc_task = (settings.embedding_task_document or "").strip() or None
+    query_task = (settings.embedding_task_query or "").strip() or None
+    embedder = HybridEmbedder(embedding_model, morph, task=doc_task)
     store = QdrantVectorStore(
         embedding_model=embedding_model,
         dim=embedding_model.dim,
@@ -144,6 +147,7 @@ def _build_and_inject() -> None:
         upsert_batch_size=settings.qdrant_upsert_batch_size,
         hybrid_prefetch_mult=settings.hybrid_prefetch_mult,
         count_cache_ttl_s=settings.qdrant_count_cache_ttl_s,
+        query_embed_task=query_task,
     )
     if (settings.embedding_provider == "openai"
             and settings.embedding_dim > 768
@@ -182,7 +186,19 @@ def _build_and_inject() -> None:
         )
     elif settings.rerank_enabled:
         top_n = min(settings.rerank_top_n, settings.top_k)
-        if settings.reranker_server_url:
+        use_jina = (
+            (settings.reranker_provider or "").lower() == "jina"
+            and bool(settings.embedding_api_key)
+        )
+        if use_jina:
+            ce_model = JinaCrossEncoder(
+                api_base=settings.embedding_api_base,
+                api_key=settings.embedding_api_key,
+                model=settings.rerank_model,
+                timeout_ms=max(settings.rerank_timeout_ms, 8000),
+            )
+            rerank_mode = "jina"
+        elif settings.reranker_server_url:
             ce_model = HttpCrossEncoder(
                 settings.reranker_server_url,
                 timeout_ms=settings.rerank_timeout_ms,
@@ -263,7 +279,15 @@ def _build_and_inject() -> None:
         type(rewrite_llm).__name__)
 
     def _run_demo_seed() -> None:
-        from harag.indexing.demo_seed import seed_demo_brochures
+        from harag.indexing.demo_seed import (
+            reconcile_library_from_qdrant, seed_demo_brochures,
+        )
+        try:
+            # Qdrant만 있고 메타DB가 빈 split-brain(AWS 등) → 메타만 복구.
+            r = reconcile_library_from_qdrant(store, metadata)
+            logger.info("library reconcile from qdrant count=%s", r)
+        except Exception:  # noqa: BLE001
+            logger.exception("library reconcile failed — continuing seed")
         try:
             n = seed_demo_brochures(ingest, store)
             logger.info("demo brochure seed done count=%s", n)
@@ -325,12 +349,38 @@ def create_app() -> FastAPI:
         body = {"status": "ok"}
         # 용량 사용률(무료 사양 한도 접근을 미리 보이게). 조회 실패 시 생략.
         # count는 블로킹 HTTP라 이벤트 루프를 막지 않게 오프로드.
-        from harag.api.deps import get_vector_store_or_none
+        from harag.api.deps import get_ingest, get_vector_store_or_none
         store = get_vector_store_or_none()
         if store is not None:
             cap = await asyncio.to_thread(store.capacity_status)
             if cap is not None:
                 body["capacity"] = cap
+
+        def _library_docs_status():
+            """메타 library ready 수 vs Qdrant points — split-brain 관측."""
+            out: dict = {}
+            try:
+                ingest = get_ingest()
+                meta = getattr(ingest, "_metadata", None)
+                if meta is not None and hasattr(meta, "list_library_documents"):
+                    rows = meta.list_library_documents() or []
+                    ready = sum(
+                        1 for r in rows
+                        if getattr(r, "status", "") == "ready")
+                    out["library_docs"] = len(rows)
+                    out["library_docs_ready"] = ready
+            except Exception:  # noqa: BLE001
+                out["library_docs_error"] = True
+            pts = None
+            if isinstance(body.get("capacity"), dict):
+                pts = body["capacity"].get("points")
+            if pts is not None and "library_docs_ready" in out:
+                # points>0 인데 ready 메타 0 → AWS 빈 DB + 공유 Qdrant 전형
+                out["split_brain"] = (
+                    int(pts or 0) > 0 and int(out["library_docs_ready"]) == 0)
+            return out
+
+        body.update(await asyncio.to_thread(_library_docs_status))
 
         def _redis_health():
             if _redis_client is None:

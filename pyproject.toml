@@ -16,6 +16,7 @@ dependencies = [
     "httpx>=0.27",
     "qdrant-client>=1.9",
     "pdfplumber>=0.11",
+    "pymupdf>=1.24",  # Jina OCR 페이지 렌더
     "python-docx>=1.1",  # DOCX → RawBlock
     "olefile>=0.46",     # HWP5 OLE 컨테이너(PrvText 등)
     "SQLAlchemy>=2.0",   # storage/metadata_store (운영 메타 진실원천, sqlite/postgres 공용)

@@ -13,6 +13,8 @@ COPY src ./src
 RUN pip install --no-cache-dir . && pip install --no-cache-dir "uvicorn[standard]>=0.27"
 
 COPY frontend ./frontend
+# 공용 설명서 시드·PDF 서빙. 없으면 기동 시드가 스킵되어 UI「설명서 0건」.
+COPY demo_pdfs ./demo_pdfs
 
 # 비루트 실행(설계 원칙: uid 10001)
 RUN useradd -u 10001 -m appuser && chown -R appuser /app

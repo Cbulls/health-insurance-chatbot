@@ -17,7 +17,7 @@ class EmbeddingModel(Protocol):
     """dense 임베딩 모델. texts -> 벡터 목록."""
     model_id: str
     dim: int
-    def encode(self, texts: list[str]) -> list[list[float]]: ...
+    def encode(self, texts: list[str], *, task: str | None = None) -> list[list[float]]: ...
 
 
 class Morph(Protocol):
@@ -28,9 +28,11 @@ class Morph(Protocol):
 class HybridEmbedder:
     """Embedder Protocol 구현. dense는 모델, sparse는 형태소."""
 
-    def __init__(self, model: EmbeddingModel, morph: Morph):
+    def __init__(self, model: EmbeddingModel, morph: Morph,
+                 task: str | None = None):
         self._model = model
         self._morph = morph
+        self._task = (task or "").strip() or None
         # 운영 모델(Api/LocalHash)은 model_id를 갖지만, 워커에 주입되는 경량
         # 어댑터/테스트 대역은 dim만 가질 수 있어 getattr로 관대하게 처리.
         self.model_id = getattr(model, "model_id", "unknown-embedding-model")
@@ -39,7 +41,11 @@ class HybridEmbedder:
     def embed(self, chunks: list[Chunk]) -> list[EmbeddedChunk]:
         if not chunks:
             return []
-        dense_vecs = self._model.encode([c.text for c in chunks])
+        texts = [c.text for c in chunks]
+        if self._task:
+            dense_vecs = self._model.encode(texts, task=self._task)
+        else:
+            dense_vecs = self._model.encode(texts)
         out: list[EmbeddedChunk] = []
         for chunk, dense in zip(chunks, dense_vecs):
             out.append(EmbeddedChunk(
