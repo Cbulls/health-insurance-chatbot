@@ -175,3 +175,80 @@ frontend/                   인슈런스핏 UI (sangtae.js / sangtae.css)
 pip install -e ".[dev]"
 pytest -q
 ```
+
+---
+
+## AWS 인프라 담당 — 재배포 후 설명서 0건
+
+재배포 직후 UI에「설명서 0건」이 뜨면 **앱 코드가 비어서가 아니라**, 메타DB·이미지·Qdrant 연결이 빠진 경우가 대부분입니다.
+
+### 왜 비는가
+
+- UI「설명서 N건」은 Qdrant가 아니라 **메타DB의 `scope=library` + `status=ready` 행**만 셉니다.
+- API 기동 시 백그라운드에서만 복구합니다 (entrypoint·워커는 시드하지 않음).
+  1. `reconcile_library_from_qdrant` — Qdrant `lib:knowledge` 벡터 → 메타 ready 행 복구  
+  2. `seed_demo_brochures` — 컨테이너 `/app/demo_pdfs/*.pdf`를 공용 라이브러리로 적재  
+- 이 레포 `Dockerfile`은 `COPY demo_pdfs ./demo_pdfs`를 포함합니다. 빌드 컨텍스트에 PDF가 없거나 `/app/demo_pdfs`에 **빈 볼륨을 덮어쓰면** 시드가 스킵됩니다.
+
+상세 런북: [deploy/k8s/README.md](deploy/k8s/README.md)  
+진단 스크립트: [deploy/k8s/check-library.sh](deploy/k8s/check-library.sh)
+
+### 1) 지금 바로 진단 (5분)
+
+```bash
+# API URL만 있을 때
+HOST=https://<api-host> ./deploy/k8s/check-library.sh
+
+# kubectl 가능하면 PDF·시드 로그까지
+HOST=https://<api-host> \
+  API_DEPLOY=deploy/<api-deployment> \
+  NS=<namespace> \
+  ./deploy/k8s/check-library.sh
+```
+
+수동 확인:
+
+```bash
+curl -sS https://<api-host>/health
+# 볼 필드: library_docs, library_docs_ready, split_brain
+
+kubectl -n <ns> exec deploy/<api> -- ls -la /app/demo_pdfs
+kubectl -n <ns> logs deploy/<api> | grep -E 'demo.seed|reconcile|demo_pdfs|seed'
+```
+
+| `/health` / 증상 | 의미 | 조치 |
+|---|---|---|
+| `split_brain: true` | Qdrant에 라이브러리 벡터는 있는데 메타 ready=0 | 최신 이미지면 기동 reconcile이 복구해야 함. 안 되면 `DATABASE_URL` 쓰기 가능 여부 확인 후 **API 재기동** |
+| `library_docs_ready: 0`, `split_brain: false`, pod에 PDF 없음 | 시드 스킵 | **`demo_pdfs`가 들어간 이미지로 재빌드·재배포**. `/app/demo_pdfs`에 빈 PVC/emptyDir 마운트 금지 |
+| PDF는 있는데 ready 0 | 시드/임베딩 실패 | 임베딩·Qdrant 시크릿과 `demo-seed` 로그 확인. 시드는 **API lifespan 스레드**(워커 아님) |
+| 잠깐 0건 | 시드 진행 중 | 1–몇 분 후 `/health` 재확인 |
+
+### 2) 영속화 (재발 방지 체크리스트)
+
+- [ ] 메타DB: **영구 Postgres** (`DATABASE_URL`). 재배포마다 빈 SQLite/에페메럴 볼륨이면 매번 0건이거나 reconcile에만 의존합니다.
+- [ ] Qdrant: `QDRANT_URL`·`QDRANT_COLLECTION`이 **이전과 동일**해야 reconcile이 동작합니다.
+- [ ] 이미지: 이 레포 `Dockerfile`로 빌드하고 컨텍스트에 `demo_pdfs/`가 포함되는지 확인 (`COPY demo_pdfs`).
+- [ ] `/app/demo_pdfs`를 빈 볼륨으로 덮어쓰지 않습니다.
+- [ ] PDF 미리보기: 이미지 안 PDF 또는 `OBJECT_STORE_*`(S3). reconcile만으로 건수는 살아도 **원본 열기는 파일/오브젝트 스토어**가 필요합니다.
+- [ ] CI: `.github/workflows/ci.yml`이 레포·이미지 안 `demo_pdfs` PDF 존재를 assert합니다. 빌드 파이프라인이 다른 Dockerfile을 쓰면 동일 검사를 넣으세요.
+
+### 3) 배포 후 합격 기준
+
+- `GET /health`: `library_docs_ready` ≥ 데모 PDF 수(대략 **10+**), `split_brain: false`
+- UI「설명서 N건」> 0
+- (가능하면) 문서 목록에서 PDF가 열림
+
+```bash
+curl -sS https://<api-host>/health
+
+# AUTH_ALLOW_DEMO_OWNER=true 인 데모 환경만:
+curl -sS -H 'X-Owner-Id: demo' https://<api-host>/v1/documents
+```
+
+운영에서 `AUTH_ALLOW_DEMO_OWNER=false`이면 JWT로 `/v1/documents`를 확인합니다.
+
+### 요약
+
+**코드를 올렸다고 설명서가 자동으로 채워지지 않습니다.**  
+메타DB가 비고, 이미지에 `demo_pdfs`가 없거나, Qdrant/임베딩이 안 맞으면 0건입니다.  
+`/health` → pod PDF 존재 → `DATABASE_URL`/Qdrant 영속·연결 순으로 맞추면 복구됩니다.

@@ -29,5 +29,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Assert demo_pdfs present for library seed
+        run: |
+          n=$(ls demo_pdfs/*.pdf 2>/dev/null | wc -l | tr -d ' ')
+          echo "demo_pdfs count=${n}"
+          test "${n}" -ge 1
       - name: Build app image
         run: docker build -t harag-app:ci .
+      - name: Assert image contains /app/demo_pdfs PDFs
+        run: |
+          n=$(docker run --rm --entrypoint sh harag-app:ci \
+            -c 'ls /app/demo_pdfs/*.pdf 2>/dev/null | wc -l' | tr -d ' ')
+          echo "image demo_pdfs count=${n}"
+          test "${n}" -ge 1
