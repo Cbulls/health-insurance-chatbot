@@ -22,7 +22,7 @@
   "메리츠_통합간편건강보험2607_상품요약서.pdf": {
     "display_name": "메리츠 통합간편건강보험",
     "insurer": "메리츠화재",
-    "source_url": "",
+    "source_url": "https://www.meritzfire.com",
     "product_line": "health",
     "doc_kind": "summary",
     "cost_nature": "lump_sum",
@@ -32,7 +32,7 @@
   "한화_311간편건강보험2604_상품요약서.pdf": {
     "display_name": "한화 311 간편건강보험",
     "insurer": "한화손해보험",
-    "source_url": "",
+    "source_url": "https://www.hwgeneralins.com",
     "product_line": "health",
     "doc_kind": "summary",
     "cost_nature": "lump_sum",
@@ -42,7 +42,7 @@
   "ABL_우리WON건강N더보장종합보험2601_상품요약서.pdf": {
     "display_name": "우리WON건강N더보장종합보험",
     "insurer": "ABL생명",
-    "source_url": "",
+    "source_url": "https://www.abllife.co.kr",
     "product_line": "health",
     "doc_kind": "summary",
     "cost_nature": "lump_sum",
@@ -52,7 +52,7 @@
   "흥국_3N5N플러스간편건강보험_해약환급금미지급형V2_상품요약서.pdf": {
     "display_name": "흥국 3.N.5.N플러스간편건강보험",
     "insurer": "흥국생명",
-    "source_url": "",
+    "source_url": "https://www.heungkuklife.co.kr",
     "product_line": "health",
     "doc_kind": "summary",
     "cost_nature": "lump_sum",
@@ -62,7 +62,7 @@
   "한화생명_시그니처H암보험_상품요약서2610.pdf": {
     "display_name": "한화생명 시그니처H암보험",
     "insurer": "한화생명",
-    "source_url": "",
+    "source_url": "https://www.hanwhalife.com",
     "product_line": "cancer",
     "doc_kind": "summary",
     "cost_nature": "lump_sum",
@@ -72,7 +72,7 @@
   "한화생명_건강더한종신보험_상품요약서2609.pdf": {
     "display_name": "한화생명 건강더한종신보험",
     "insurer": "한화생명",
-    "source_url": "",
+    "source_url": "https://www.hanwhalife.com",
     "product_line": "life",
     "doc_kind": "summary",
     "cost_nature": "lump_sum",
@@ -82,7 +82,7 @@
   "한화생명_걸음e건강보험_상품요약서2604.pdf": {
     "display_name": "한화생명 걸음e건강보험",
     "insurer": "한화생명",
-    "source_url": "",
+    "source_url": "https://www.hanwhalife.com",
     "product_line": "health",
     "doc_kind": "summary",
     "cost_nature": "lump_sum",
@@ -92,7 +92,7 @@
   "한화생명_e건강보험_상품요약서2604.pdf": {
     "display_name": "한화생명 e건강보험",
     "insurer": "한화생명",
-    "source_url": "",
+    "source_url": "https://www.hanwhalife.com",
     "product_line": "health",
     "doc_kind": "summary",
     "cost_nature": "lump_sum",
@@ -102,7 +102,7 @@
   "NH농협생명_369새로나온NH암보험_상품요약서.pdf": {
     "display_name": "NH농협생명 369새로나온NH암보험",
     "insurer": "NH농협생명",
-    "source_url": "",
+    "source_url": "https://www.nhlife.co.kr",
     "product_line": "cancer",
     "doc_kind": "summary",
     "cost_nature": "lump_sum",

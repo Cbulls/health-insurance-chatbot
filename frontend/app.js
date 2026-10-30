@@ -782,25 +782,37 @@ function httpErrorMessage(status, body, fallback, retryAfterHeader) {
 }
 
 function abstainMessage(reason) {
-  if (reason === "empty_context" || reason === "low_score")
-    return "업로드한 문서에서 근거를 찾지 못했습니다. (지어내지 않고 답변을 보류합니다)";
+  if (reason === "empty_context" || reason === "low_score"
+      || reason === "no_evidence_in_documents" || reason === "missing_citation")
+    return (
+      "이 설명서에서 질문과 바로 맞는 구절을 찾지 못했습니다. "
+      + "날짜·일수 같은 확정 수치는 지어내지 않습니다.\n\n"
+      + "「보험기간」「책임개시」「면책」「대기」처럼 약관 용어로 다시 물어보시면 "
+      + "찾기가 쉽습니다. 예: 책임개시일은 언제인가요? / 면책·대기기간은 며칠인가요?\n\n"
+      + "확정이 필요하면 보험사 고객센터·설계사 상담을 함께 이용해 주세요."
+    );
   if ((reason || "").startsWith("fabricated_citation"))
     return "답변 검증에 실패하여 응답을 보류합니다. 질문을 조금 바꿔 다시 시도해 주세요.";
-  if (reason === "missing_citation")
-    return "이 설명서만으로는 확답하기 어렵습니다. 다른 표현으로 물어보거나 질문을 바꿔 주세요.";
   if (reason === "llm_unavailable")
     return "답변 생성 서비스가 일시적으로 불안정합니다. 잠시 후 다시 시도해 주세요.";
   if (reason === "llm_cost_limit")
-    return "질문이 너무 넓어 답변을 보류합니다. 더 구체적으로 물어봐 주세요.";
-  if (reason === "no_evidence_in_documents")
-    return "문서에 관련 내용이 없어 답변을 보류합니다. 다른 표현으로 물어봐 주세요.";
+    return "질문이 너무 넓어 한 번에 답하기 어렵습니다. 담보·기간을 좁혀 다시 물어봐 주세요.";
+  if (reason === "embedding_unavailable")
+    return (
+      "문서 검색 서비스가 일시적으로 불가합니다. "
+      + "가입 방법·보험료 확인 경로처럼 기본 안내는 다시 물어보시면 "
+      + "설명서 검색 없이 안내할 수 있습니다. 잠시 후 다시 시도해 주세요."
+    );
   if (reason === "injection_blocked")
     return "질의에 시스템 지시 우회·인젝션으로 보이는 내용이 있어 답변을 보류합니다.";
   if (reason === "injection_canary_leak")
     return "보안 검증에 실패하여 답변을 폐기했습니다. 질문을 바꿔 다시 시도해 주세요.";
   if ((reason || "").startsWith("injection"))
     return "보안 정책에 따라 답변을 보류합니다.";
-  return "이 설명서만으로는 확답하기 어렵습니다. 다른 표현으로 물어보거나 질문을 바꿔 주세요.";
+  return (
+    "이 설명서만으로는 확답하기 어렵습니다. "
+    + "용어를 바꿔 물어보시거나 질문을 구체화해 주세요."
+  );
 }
 
 function renderCitations(wrap, data) {
@@ -818,12 +830,27 @@ function renderCitations(wrap, data) {
   const box = document.createElement("div");
   box.className = "citations";
   items.forEach((c) => {
+    const page = formatPage(c.page);
+    const path = c.struct_path ? ` · ${c.struct_path}` : "";
+    const srcDoc = c.source_document || "";
+    const webUrl = (c.document_id === "web" || /^https?:\/\//i.test(srcDoc))
+      ? (srcDoc.startsWith("http") ? srcDoc : (c.citation_label || ""))
+      : "";
+    if (webUrl && /^https?:\/\//i.test(webUrl)) {
+      const chip = document.createElement("a");
+      chip.className = "cite";
+      chip.href = webUrl;
+      chip.target = "_blank";
+      chip.rel = "noopener noreferrer";
+      chip.textContent = "공식 사이트 · " + (c.citation_label || srcDoc || "링크");
+      chip.title = c.citation_label || webUrl;
+      box.appendChild(chip);
+      return;
+    }
     const chip = document.createElement("button");
     chip.type = "button";
     chip.className = "cite";
-    const page = formatPage(c.page);
-    const path = c.struct_path ? ` · ${c.struct_path}` : "";
-    const src = c.source_document || c.citation_label || "출처";
+    const src = srcDoc || c.citation_label || "출처";
     chip.textContent = src + page + path;
     chip.title = c.citation_label || "";
     chip.addEventListener("click", () => showCitePanel(c));

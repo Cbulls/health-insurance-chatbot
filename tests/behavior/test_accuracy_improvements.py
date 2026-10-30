@@ -224,8 +224,9 @@ def _scored(cid="c1", text="본문", score=0.9):
     return ScoredChunk(chunk=Chunk(meta=meta, text=text), score=score)
 
 
-def test_no_evidence_answer_normalized_to_abstain():
+def test_no_evidence_answer_becomes_soft_guidance():
     from harag.generation.generator import AnswerGenerator
+    from harag.security.output_guard import SOFT_NO_EVIDENCE_ANSWER
 
     class NoEvidenceLLM:
         def complete(self, query, context_texts, context_ids):
@@ -233,8 +234,9 @@ def test_no_evidence_answer_normalized_to_abstain():
 
     gen = AnswerGenerator(llm=NoEvidenceLLM(), min_score=0.1)
     out = gen.generate("보험료는?", [_scored()])
-    assert out.abstained and out.answer is None
-    assert out.abstain_reason == "no_evidence_in_documents"
+    assert not out.abstained
+    assert out.answer == SOFT_NO_EVIDENCE_ANSWER
+    assert out.cited_chunk_ids  # 검색 청크를 칩으로 연결
 
 
 def test_grounded_answer_not_normalized():

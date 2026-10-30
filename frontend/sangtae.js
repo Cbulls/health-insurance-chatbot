@@ -129,7 +129,7 @@ function renderAskDocBar() {
     if (queryInput) queryInput.placeholder = "이 설명서에서 궁금한 점을 적으세요";
     if (askCopy) {
       askCopy.textContent =
-        "선택한 설명서에서만 답합니다. 근거가 없으면 지어내지 않습니다.";
+        "선택한 설명서에서만 답합니다. 근거가 없으면 확정 수치를 만들지 않고, 다시 물을 표현을 안내합니다.";
     }
     if (emptyStateCopy) emptyStateCopy.textContent = "설명서를 고른 뒤 질문해 보세요.";
     if (emptyStateHint) {
@@ -146,7 +146,7 @@ function renderAskDocBar() {
   }
   if (askCopy) {
     askCopy.textContent =
-      "선택한 설명서에서만 답합니다. 근거가 없으면 지어내지 않습니다.";
+      "선택한 설명서에서만 답합니다. 근거가 없으면 확정 수치를 만들지 않고, 다시 물을 표현을 안내합니다.";
   }
   if (emptyStateCopy) {
     emptyStateCopy.textContent = name + " 내용만 보고 답합니다.";
@@ -1762,22 +1762,35 @@ function inlineAnswerHtml(s, sourceByN) {
 }
 
 function abstainMessage(reason) {
-  if (reason === "empty_context" || reason === "low_score")
-    return "이 설명서에서 근거를 찾지 못했습니다. 지어내지 않고 답변을 보류합니다.";
+  // Soft abstain: 침묵 보류 대신 다음 행동 안내 (확정 수치는 만들지 않음).
+  if (reason === "empty_context" || reason === "low_score"
+      || reason === "no_evidence_in_documents" || reason === "missing_citation")
+    return (
+      "이 설명서에서 질문과 바로 맞는 구절을 찾지 못했습니다. "
+      + "날짜·일수 같은 확정 수치는 지어내지 않습니다.\n\n"
+      + "「보험기간」「책임개시」「면책」「대기」처럼 약관 용어로 다시 물어보시면 "
+      + "찾기가 쉽습니다. 예: 책임개시일은 언제인가요? / 면책·대기기간은 며칠인가요?\n\n"
+      + "확정이 필요하면 보험사 고객센터·설계사 상담을 함께 이용해 주세요."
+    );
   if ((reason || "").startsWith("fabricated_citation"))
     return "답변 검증에 실패하여 응답을 보류합니다. 질문을 조금 바꿔 다시 시도해 주세요.";
-  if (reason === "missing_citation")
-    return "이 설명서만으로는 확답하기 어렵습니다. 다른 표현으로 물어보거나 상품 카드의 질문하기를 이용해 주세요.";
-  if (reason === "no_evidence_in_documents")
-    return "설명서에 관련 내용이 없어 답변을 보류합니다. 다른 표현으로 물어봐 주세요.";
   if (reason === "llm_unavailable")
     return "답변 생성 서비스가 일시적으로 불안정합니다. 잠시 후 다시 시도해 주세요.";
   if (reason === "llm_cost_limit")
-    return "질문이 너무 넓어 답변을 보류합니다. 더 구체적으로 물어봐 주세요.";
+    return "질문이 너무 넓어 한 번에 답하기 어렵습니다. 담보·기간을 좁혀 다시 물어봐 주세요.";
+  if (reason === "embedding_unavailable")
+    return (
+      "문서 검색 서비스가 일시적으로 불가합니다. "
+      + "가입 방법·보험료 확인 경로처럼 기본 안내는 다시 물어보시면 "
+      + "설명서 검색 없이 안내할 수 있습니다. 잠시 후 다시 시도해 주세요."
+    );
   if (reason === "injection_blocked" || reason === "injection_canary_leak"
       || (reason || "").startsWith("injection"))
     return "보안 정책에 따라 답변을 보류합니다. 질문을 바꿔 다시 시도해 주세요.";
-  return "이 설명서만으로는 확답하기 어렵습니다. 다른 표현으로 물어보거나 상품 카드의 질문하기를 이용해 주세요.";
+  return (
+    "이 설명서만으로는 확답하기 어렵습니다. "
+    + "용어를 바꿔 물어보시거나 상품 카드의 질문하기를 이용해 주세요."
+  );
 }
 
 function renderCitations(wrap, data) {
@@ -1797,10 +1810,21 @@ function renderCitations(wrap, data) {
       ? ""
       : " p." + (Array.isArray(c.page) ? c.page.join(",") : c.page);
     const path = c.struct_path ? " · " + c.struct_path : "";
-    const label = (c.source_document || c.citation_label || "출처") + page + path;
+    const srcDoc = c.source_document || "";
+    const webUrl = (c.document_id === "web" || /^https?:\/\//i.test(srcDoc))
+      ? (srcDoc.startsWith("http") ? srcDoc : (c.citation_label || ""))
+      : "";
+    const label = webUrl
+      ? ("공식 사이트 · " + (c.citation_label || srcDoc || "링크"))
+      : ((srcDoc || c.citation_label || "출처") + page + path);
     const id = c.document_id || "";
     let chip;
-    if (id) {
+    if (webUrl && /^https?:\/\//i.test(webUrl)) {
+      chip = document.createElement("a");
+      chip.href = webUrl;
+      chip.target = "_blank";
+      chip.rel = "noopener noreferrer";
+    } else if (id && id !== "web" && id !== "faq") {
       chip = document.createElement("a");
       chip.href = brochurePdfHref(id);
       chip.setAttribute("data-doc-id", id);

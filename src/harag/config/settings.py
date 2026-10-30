@@ -231,6 +231,14 @@ class Settings:
     hira_service_key: str = ""
     hira_base_url: str = "https://apis.data.go.kr/B551182/diseaseInfoService1"
 
+    # ── 공식 사이트 허용 검색 (보험사 도메인 allowlist) ──
+    web_browse_enabled: bool = True
+    web_browse_max_fetches: int = 3
+    web_browse_max_chars: int = 6000
+    web_browse_timeout_sec: float = 8.0
+    # FAQ/premium intent에 LLM JSON 분류 보조(키 있을 때만)
+    intent_llm_enabled: bool = False
+
     @property
     def qdrant_url_or_none(self) -> str | None:
         return self.qdrant_url or None
@@ -371,6 +379,11 @@ def get_settings() -> Settings:
             "HIRA_BASE_URL",
             "https://apis.data.go.kr/B551182/diseaseInfoService1",
         ) or "https://apis.data.go.kr/B551182/diseaseInfoService1",
+        web_browse_enabled=_get_bool("WEB_BROWSE_ENABLED", True),
+        web_browse_max_fetches=_get_int("WEB_BROWSE_MAX_FETCHES", 3),
+        web_browse_max_chars=_get_int("WEB_BROWSE_MAX_CHARS", 6000),
+        web_browse_timeout_sec=_get_float("WEB_BROWSE_TIMEOUT_SEC", 8.0),
+        intent_llm_enabled=_get_bool("INTENT_LLM_ENABLED", False),
     )
 
 

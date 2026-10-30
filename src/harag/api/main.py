@@ -236,6 +236,33 @@ def _build_and_inject() -> None:
     rewriter = QueryRewriter(rewrite_llm, conv_store)
     set_conversation_store(conv_store)
 
+    from harag.retrieval.official_web import (
+        HeuristicWebPlanner, OfficialWebBrowser, TransportWebPlanner,
+        WebBrowseConfig,
+    )
+    from harag.query.intent import TransportIntentLLM
+
+    web_planner = HeuristicWebPlanner()
+    intent_llm = None
+    if settings.llm_provider == "openai" and settings.llm_api_key:
+        plan_transport = OpenAIChatTransport(
+            api_base=settings.llm_api_base, api_key=settings.llm_api_key,
+            timeout=max(5.0, settings.web_browse_timeout_sec),
+        )
+        plan_model = settings.llm_rewrite_model or settings.llm_model
+        web_planner = TransportWebPlanner(plan_transport, plan_model)
+        if settings.intent_llm_enabled:
+            intent_llm = TransportIntentLLM(plan_transport, plan_model)
+    web_browser = OfficialWebBrowser(
+        config=WebBrowseConfig(
+            enabled=settings.web_browse_enabled,
+            max_fetches=settings.web_browse_max_fetches,
+            max_chars=settings.web_browse_max_chars,
+            timeout_sec=settings.web_browse_timeout_sec,
+        ),
+        planner=web_planner,
+    )
+
     pipeline = QueryPipelineImpl(
         retriever=store, generator=generator,
         reranker=reranker, rewriter=rewriter,
@@ -245,6 +272,9 @@ def _build_and_inject() -> None:
         context_expand=settings.context_expand,
         context_max_tokens=settings.context_max_tokens,
         metadata=metadata,
+        web_browser=web_browser,
+        intent_llm=intent_llm,
+        min_score=settings.min_score,
     )
     from harag.guidance.hira import HiraStats
     from harag.guidance.service import GuidanceService

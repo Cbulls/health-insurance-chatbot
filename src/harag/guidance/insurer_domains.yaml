@@ -1,0 +1,34 @@
+{
+  "KB손해보험": {
+    "hosts": ["www.kbinsure.co.kr", "kbinsure.co.kr"],
+    "homepage": "https://www.kbinsure.co.kr"
+  },
+  "삼성생명": {
+    "hosts": ["www.samsunglife.com", "samsunglife.com"],
+    "homepage": "https://www.samsunglife.com"
+  },
+  "메리츠화재": {
+    "hosts": ["www.meritzfire.com", "meritzfire.com"],
+    "homepage": "https://www.meritzfire.com"
+  },
+  "한화손해보험": {
+    "hosts": ["www.hwgeneralins.com", "hwgeneralins.com"],
+    "homepage": "https://www.hwgeneralins.com"
+  },
+  "ABL생명": {
+    "hosts": ["www.abllife.co.kr", "abllife.co.kr"],
+    "homepage": "https://www.abllife.co.kr"
+  },
+  "흥국생명": {
+    "hosts": ["www.heungkuklife.co.kr", "heungkuklife.co.kr"],
+    "homepage": "https://www.heungkuklife.co.kr"
+  },
+  "한화생명": {
+    "hosts": ["www.hanwhalife.com", "hanwhalife.com"],
+    "homepage": "https://www.hanwhalife.com"
+  },
+  "NH농협생명": {
+    "hosts": ["www.nhlife.co.kr", "nhlife.co.kr"],
+    "homepage": "https://www.nhlife.co.kr"
+  }
+}

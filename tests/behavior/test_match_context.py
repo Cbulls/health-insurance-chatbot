@@ -52,19 +52,27 @@ def test_prepend_alone_satisfies_precheck():
 
 
 def test_soft_abstain_기재되어_있지_않_normalized():
+    from harag.security.output_guard import SOFT_NO_EVIDENCE_ANSWER
+
     guard = OutputGuard()
     text = (
         "제공된 문서에는 삼성 보험의 장점에 대한 내용이 기재되어 있지 않아 "
         "안내해 드리기 어렵습니다."
     )
     out = guard.validate(text, [], ["c1"])
-    assert not out.ok
-    assert out.abstain_reason == "no_evidence_in_documents"
+    assert out.ok
+    assert out.answer == SOFT_NO_EVIDENCE_ANSWER
+    assert out.cited_chunk_ids == ["c1"]
+    assert out.abstain_reason is None
 
 
 def test_soft_abstain_관련_내용이_있지_않_normalized():
+    from harag.security.output_guard import SOFT_NO_EVIDENCE_ANSWER
+
     guard = OutputGuard()
     text = "문서에 관련 내용이 장점으로 있지 않아 안내가 어렵습니다."
     out = guard.validate(text, ["c1"], ["c1"])
-    assert not out.ok
-    assert out.abstain_reason == "no_evidence_in_documents"
+    assert out.ok
+    assert out.answer == SOFT_NO_EVIDENCE_ANSWER
+    assert "c1" in out.cited_chunk_ids
+    assert out.abstain_reason is None

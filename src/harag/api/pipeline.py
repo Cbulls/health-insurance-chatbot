@@ -78,6 +78,22 @@ def _scan_query_hard(query: str):
     return None
 
 
+def _is_embedding_failure(exc: BaseException) -> bool:
+    """Jina 잔액·429 등 임베딩 API 실패 (스트림을 error로 떨어뜨리지 않음)."""
+    from harag.embedding.api_embedder import EmbeddingRateLimitError
+    if isinstance(exc, EmbeddingRateLimitError):
+        return True
+    name = type(exc).__name__
+    if "Embedding" in name and ("Rate" in name or "Error" in name):
+        return True
+    msg = str(exc).lower()
+    return (
+        "insufficient" in msg
+        or "insufficient account balance" in msg
+        or "embedding" in msg and ("429" in msg or "403" in msg)
+    )
+
+
 MATCH_CONTEXT_CHUNK_ID = "match-context"
 _MATCH_CONTEXT_SCORE = 1.0
 
@@ -164,13 +180,57 @@ class _MatchModePrompt:
         return False
 
 
+class _WebModePrompt:
+    """공식 웹 청크가 있을 때 시스템 지시 보강."""
+
+    def __init__(self, generator, enabled: bool):
+        self._generator = generator
+        self._enabled = enabled
+        self._llm = None
+        self._prev = None
+
+    def __enter__(self):
+        if not self._enabled:
+            return self
+        llm = getattr(self._generator, "_llm", None)
+        if llm is None or not hasattr(llm, "_system_instruction"):
+            return self
+        from harag.generation.llm_client import ExternalLLMClient
+        addendum = getattr(ExternalLLMClient, "WEB_CONTEXT_ADDENDUM", "") or ""
+        if not addendum:
+            return self
+        self._llm = llm
+        self._prev = llm._system_instruction
+        if addendum not in (self._prev or ""):
+            llm._system_instruction = (self._prev or "") + addendum
+        return self
+
+    def __exit__(self, *exc):
+        if self._llm is not None and self._prev is not None:
+            self._llm._system_instruction = self._prev
+        return False
+
+
+def _has_web_chunks(results: list[ScoredChunk]) -> bool:
+    from harag.retrieval.official_web import WEB_DOCUMENT_ID
+    for r in results or []:
+        did = str(getattr(r.chunk.meta, "document_id", "") or "")
+        cid = str(getattr(r.chunk.meta, "chunk_id", "") or "")
+        if did == WEB_DOCUMENT_ID or cid.startswith("web-"):
+            return True
+    return False
+
+
 class QueryPipelineImpl:
     def __init__(self, retriever, generator, reranker=None, rewriter=None,
                  top_k: int = 20, under_load_inflight: int = 4,
                  context_dedupe: bool = True,
                  context_expand: bool = True,
                  context_max_tokens: int = 3500,
-                 metadata=None):
+                 metadata=None,
+                 web_browser=None,
+                 intent_llm=None,
+                 min_score: float = 0.15):
         self._retriever = retriever
         self._generator = generator
         self._reranker = reranker
@@ -181,6 +241,10 @@ class QueryPipelineImpl:
         self._context_expand = context_expand
         self._context_max_tokens = max(500, context_max_tokens)
         self._metadata = metadata
+        self._web_browser = web_browser
+        self._intent_llm = intent_llm
+        self._min_score = float(min_score)
+        self._store = retriever  # empty_context 진단용(count_for_owner)
 
     async def answer(self, query: str, auth: AuthContext,
                      conversation_id: str | None,
@@ -190,6 +254,189 @@ class QueryPipelineImpl:
         return await asyncio.to_thread(
             self._answer_sync, query, auth, conversation_id,
             document_id, document_ids, match_context)
+
+    def _doc_ids(self, document_id: str | None,
+                 document_ids: list[str] | None) -> list[str]:
+        out: list[str] = []
+        seen: set[str] = set()
+        for d in list(document_ids or []) + (
+                [document_id] if document_id else []):
+            s = (d or "").strip()
+            if not s or s in seen:
+                continue
+            seen.add(s)
+            out.append(s)
+        return out
+
+    def _faq_short_circuit(self, intent, docs: list[str]) -> AnswerResult | None:
+        """문서 미선택 FAQ/보험료 → 큐레이션 문장으로 즉시 응답."""
+        if docs:
+            return None
+        return self._faq_curated_answer(intent)
+
+    def _faq_curated_answer(self, intent) -> AnswerResult | None:
+        """문서 유무와 무관하게 FAQ/보험료 큐레이션 답 (임베딩 폴백용)."""
+        from harag.query.context_chunks import (
+            scored_faq_chunk, scored_premium_chunk,
+        )
+        from harag.query.faq import format_faq_answer, premium_template_answer
+
+        if intent.label == "premium_quote":
+            chunk = scored_premium_chunk()
+            return AnswerResult(
+                answer=premium_template_answer(),
+                context_chunks=[chunk],
+                abstained=False,
+                abstain_reason=None,
+            )
+        if intent.faq is not None:
+            chunk = scored_faq_chunk(intent.faq)
+            return AnswerResult(
+                answer=format_faq_answer(intent.faq),
+                context_chunks=[chunk],
+                abstained=False,
+                abstain_reason=None,
+            )
+        return None
+
+    def _embedding_unavailable_result(self, intent) -> AnswerResult:
+        """임베딩 실패 시 FAQ 폴백 또는 embedding_unavailable abstain."""
+        fb = self._faq_curated_answer(intent)
+        if fb is not None:
+            logger.warning(
+                "embedding unavailable — FAQ/premium fallback intent=%s",
+                getattr(intent, "label", None),
+            )
+            return fb
+        return AnswerResult(
+            answer=None,
+            abstained=True,
+            abstain_reason="embedding_unavailable",
+            context_chunks=[],
+        )
+
+    def _inject_web_if_needed(
+        self,
+        query: str,
+        intent,
+        docs: list[str],
+        results: list[ScoredChunk],
+    ) -> list[ScoredChunk]:
+        if self._web_browser is None or not docs:
+            return results
+        cfg = getattr(self._web_browser, "config", None)
+        if cfg is not None and not getattr(cfg, "enabled", True):
+            return results
+
+        want = False
+        if intent.label in ("premium_quote", "common_faq"):
+            want = True
+        else:
+            top = max((r.score for r in results), default=0.0)
+            if top < self._min_score:
+                want = True
+        if not want:
+            return results
+
+        from harag.query.context_chunks import resolve_selected_products
+        from harag.retrieval.official_web import (
+            prepend_web_chunks, resolve_allowlist_for_products,
+        )
+
+        products = resolve_selected_products(docs, self._metadata)
+        entries = resolve_allowlist_for_products(products)
+        if not entries:
+            return results
+        try:
+            web = self._web_browser.browse(query, entries)
+        except Exception:  # noqa: BLE001
+            logger.exception("official web browse failed")
+            web = []
+        return prepend_web_chunks(results, web)
+
+    def _build_faq_premium_context(
+        self, intent, docs: list[str],
+    ) -> list[ScoredChunk]:
+        from harag.query.context_chunks import (
+            resolve_selected_products,
+            scored_faq_chunk,
+            scored_premium_chunk,
+        )
+
+        products = resolve_selected_products(docs, self._metadata)
+        p0 = products[0] if products else {}
+        if intent.label == "premium_quote":
+            return [scored_premium_chunk(
+                display_name=p0.get("display_name", ""),
+                insurer=p0.get("insurer", ""),
+                summary=p0.get("summary", ""),
+                cost_nature=p0.get("cost_nature", ""),
+                source_url=p0.get("source_url", ""),
+            )]
+        out: list[ScoredChunk] = []
+        if intent.faq is not None:
+            out.append(scored_faq_chunk(intent.faq))
+        return out
+
+    def _assemble_results(
+        self,
+        query: str,
+        auth: AuthContext,
+        conversation_id: str | None,
+        document_id: str | None,
+        document_ids: list[str] | None,
+        match_context: str | None,
+    ) -> tuple[list[ScoredChunk], "QueryTrace", object, AnswerResult | None]:
+        """intent → FAQ short-circuit 또는 검색/FAQ 컨텍스트 + 웹.
+
+        Returns: results, trace, intent, short_circuit_or_None
+        """
+        from harag.query.intent import classify_intent
+
+        docs = self._doc_ids(document_id, document_ids)
+        intent = classify_intent(query, llm=self._intent_llm)
+        short = self._faq_short_circuit(intent, docs)
+        if short is not None:
+            tid = current_trace_id() or "local"
+            tr = QueryTrace(tid, query, mask=_query_mask_fn())
+            return [], tr, intent, short
+
+        # 면책·대기 등은 상품 조항이 핵심 → 문서 선택 시 RAG 유지 + FAQ 보강
+        faq_id = getattr(intent.faq, "id", None) if intent.faq else None
+        skip_rag = intent.label == "premium_quote" or (
+            intent.label == "common_faq"
+            and faq_id != "waiting_period_general"
+        )
+        if skip_rag:
+            tid = current_trace_id() or "local"
+            tr = QueryTrace(tid, query, mask=_query_mask_fn())
+            results = self._build_faq_premium_context(intent, docs)
+            results = self._inject_web_if_needed(query, intent, docs, results)
+            results = prepend_match_context(results, match_context)
+            return results, tr, intent, None
+
+        try:
+            results, tr = self._retrieve_sync(
+                query, auth, conversation_id,
+                document_id=document_id, document_ids=document_ids)
+        except Exception as exc:  # noqa: BLE001 — 임베딩 실패만 FAQ/abstain으로
+            if not _is_embedding_failure(exc):
+                raise
+            logger.warning("retrieve embedding failed: %s", exc)
+            tid = current_trace_id() or "local"
+            tr = QueryTrace(tid, query, mask=_query_mask_fn())
+            return [], tr, intent, self._embedding_unavailable_result(intent)
+
+        if intent.faq is not None:
+            from harag.query.context_chunks import scored_faq_chunk
+            faq_sc = scored_faq_chunk(intent.faq)
+            results = [faq_sc] + [
+                r for r in results
+                if r.chunk.meta.chunk_id != faq_sc.chunk.meta.chunk_id
+            ]
+        results = self._inject_web_if_needed(query, intent, docs, results)
+        results = prepend_match_context(results, match_context)
+        return results, tr, intent, None
 
     def _retrieve_sync(self, query: str, auth: AuthContext,
                        conversation_id: str | None,
@@ -335,11 +582,23 @@ class QueryPipelineImpl:
             return result
 
         with _INFLIGHT:
-            results, tr = self._retrieve_sync(
+            results, tr, _intent, short = self._assemble_results(
                 query, auth, conversation_id,
-                document_id=document_id, document_ids=document_ids)
-            results = prepend_match_context(results, match_context)
-            with _MatchModePrompt(self._generator, bool((match_context or "").strip())):
+                document_id, document_ids, match_context)
+            if short is not None:
+                self._record_turn(query, conversation_id)
+                est = max(len(query) // 2, 1)
+                if short.answer:
+                    est += len(short.answer) // 2
+                event = (
+                    "abstain" if short.abstained or not short.answer else "query"
+                )
+                self._audit(event, auth, tr, short, token_estimate=est)
+                return short
+            match_on = bool((match_context or "").strip())
+            web_on = _has_web_chunks(results)
+            with _MatchModePrompt(self._generator, match_on), \
+                    _WebModePrompt(self._generator, web_on):
                 result = self._generate_sync(query, results, conversation_id)
             est = max(len(query) // 2, 1)
             if result.answer:
@@ -402,15 +661,36 @@ class QueryPipelineImpl:
             yield StreamEvent(kind="abstain", data="injection_blocked")
             return
 
-        def _retrieve_counted():
+        def _assemble_counted():
             with _INFLIGHT:
-                results, tr = self._retrieve_sync(
+                return self._assemble_results(
                     query, auth, conversation_id,
-                    document_id=document_id, document_ids=document_ids)
-                results = prepend_match_context(results, match_context)
-                return results, tr
+                    document_id, document_ids, match_context)
 
-        results, tr = await asyncio.to_thread(_retrieve_counted)
+        results, tr, _intent, short = await asyncio.to_thread(_assemble_counted)
+        if short is not None:
+            self._record_turn(query, conversation_id)
+            est = max(len(query) // 2, 1)
+            if short.answer:
+                est += len(short.answer) // 2
+            if short.abstained or not short.answer:
+                self._audit("abstain", auth, tr, short, token_estimate=est)
+                yield StreamEvent(
+                    kind="abstain",
+                    data=short.abstain_reason or "no_answer")
+                return
+            self._audit("query", auth, tr, short, token_estimate=est)
+            from harag.api.citations_fmt import (
+                citations_sse_payload, sources_sse_payload)
+            ctx = short.context_chunks or []
+            yield StreamEvent(kind="sources", data=sources_sse_payload(ctx))
+            for piece in _chunks_of(short.answer or ""):
+                yield StreamEvent(kind="token", data=piece)
+            yield StreamEvent(
+                kind="citations", data=citations_sse_payload(ctx))
+            yield StreamEvent(kind="done", data="")
+            return
+
         pre = self._generator.precheck(results)
         if pre is not None:
             reason = pre.abstain_reason or "no_answer"
@@ -436,10 +716,13 @@ class QueryPipelineImpl:
             return
 
         match_on = bool((match_context or "").strip())
-        with _MatchModePrompt(self._generator, match_on):
+        web_on = _has_web_chunks(results)
+        with _MatchModePrompt(self._generator, match_on), \
+                _WebModePrompt(self._generator, web_on):
             token_iter = self._generator.stream_tokens(query, results)
         if token_iter is None:
-            with _MatchModePrompt(self._generator, match_on):
+            with _MatchModePrompt(self._generator, match_on), \
+                    _WebModePrompt(self._generator, web_on):
                 result = await asyncio.to_thread(
                     self._generate_sync, query, results, conversation_id)
             est = max(len(query) // 2, 1)
