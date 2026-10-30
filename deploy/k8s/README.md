@@ -1,5 +1,7 @@
 # Kubernetes 골격 (Phase 4)
 
+**새 이미지 빌드·ECR 푸시·롤아웃·검증 전체 절차:** 루트 [README.md](../../README.md) 「AWS — 새 이미지 배포 (인프라)」.
+
 다중 AZ·HPA가 필요할 때 사용. 시크릿은 클러스터 Secret / External Secrets로 주입.
 
 ```bash
@@ -17,12 +19,13 @@ kubectl apply -f deploy/k8s/hpa.yaml
 ## 설명서 0건 / split-brain (재배포 복구 런북)
 
 UI「설명서 N건」은 Qdrant가 아니라 **메타DB `scope=library` + `status=ready` 행**이다.
-API 기동 시 백그라운드에서만:
+API 기동(및 `POST /v1/library/bootstrap`, doc_admin) 시:
 
-1. `reconcile_library_from_qdrant` — Qdrant `lib:knowledge` → 메타 ready 복구  
-2. `seed_demo_brochures` — 이미지 `/app/demo_pdfs/*.pdf` 적재  
+1. `reconcile` — Qdrant `lib:knowledge` → 메타 ready (**재임베딩 없음**)  
+2. `seed` — 이미지 `/app/demo_pdfs/*.pdf` 적재  
 
 entrypoint는 시드하지 않는다. 이미지에는 `Dockerfile`이 `COPY demo_pdfs` 한다.
+`/health`: `library_meta_ready`, `library_vector_docs`, `split_brain`, `library_bootstrap`.
 
 ### 1) 원인 가르기 (5분)
 

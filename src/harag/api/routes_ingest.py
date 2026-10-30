@@ -6,9 +6,12 @@ MVP: 업로드 → 즉시 202 → 큐/스레드풀로 파싱·임베딩(비동�
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import logging
 import os
 import tempfile
+import threading
 
 from fastapi import (
     APIRouter, Depends, UploadFile, File, Form, HTTPException, status,
@@ -25,6 +28,8 @@ from harag.api.ratelimit import enforce_rate_limit
 from harag.api.schemas import IngestResponse, DocumentStatus, DeleteResponse
 from harag.config.settings import get_settings
 from harag.contracts.boundaries import AuthContext
+
+logger = logging.getLogger("harag.api.ingest")
 
 router = APIRouter(prefix="/v1", tags=["ingest"])
 
@@ -331,3 +336,54 @@ async def delete_document(document_id: str,
     return DeleteResponse(
         document_id=document_id, status="deleted",
         trace_id=current_trace_id())
+
+
+@router.post("/library/bootstrap")
+async def library_bootstrap(
+    background: bool = True,
+    auth: AuthContext = Depends(require_auth),
+):
+    """Qdrant→메타 reconcile 후 demo_pdfs 시드 (이중 층). doc_admin/admin만.
+
+    background=true(기본): 202 성격으로 즉시 상태 반환 후 백그라운드 실행.
+    background=false: 동기 완료 후 결과 반환(시연·소량 복구용).
+    """
+    if not can_manage_library(auth):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="라이브러리 부트스트랩은 admin 또는 doc_admin만 가능합니다.",
+        )
+    from harag.api.deps import get_ingest, get_vector_store_or_none
+    from harag.indexing.demo_seed import bootstrap_library, get_bootstrap_state
+
+    ingest = get_ingest()
+    store = get_vector_store_or_none()
+    if store is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="vector store unavailable",
+        )
+
+    if not background:
+        out = await asyncio.to_thread(bootstrap_library, ingest, store)
+        return {
+            "accepted": True,
+            "mode": "sync",
+            "bootstrap": out,
+            "trace_id": current_trace_id(),
+        }
+
+    def _run() -> None:
+        try:
+            bootstrap_library(ingest, store)
+        except Exception:  # noqa: BLE001
+            logger.exception("library bootstrap background failed")
+
+    threading.Thread(
+        target=_run, name="library-bootstrap", daemon=True).start()
+    return {
+        "accepted": True,
+        "mode": "background",
+        "bootstrap": get_bootstrap_state(),
+        "trace_id": current_trace_id(),
+    }

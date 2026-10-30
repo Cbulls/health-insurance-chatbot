@@ -1,15 +1,19 @@
-"""기동 시 demo_pdfs를 전사 지식 라이브러리로 시드.
+"""기동·운영: Qdrant(벡터) + 메타DB·demo_pdfs(장부/원본) 이중 층 부트스트랩.
 
-HTTP/admin JWT를 쓰지 않는다. 안내 주경로는 시드 실패와 무관하다.
+1) reconcile_library_from_qdrant — 벡터→메타 (재임베딩 없음)
+2) seed_demo_brochures — demo_pdfs로 콜드 시드/메타 맞춤
 
-AWS 등에서 Qdrant만 채워지고 메타DB가 비는 split-brain을 막기 위해
-기동 시 reconcile_library_from_qdrant로 메타를 복구한다.
+안내 주경로는 시드 실패와 무관하다.
 """
 from __future__ import annotations
 
 import hashlib
 import logging
+import threading
+import time
+from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Any
 
 from harag.api.acl_helpers import LIB_TAG
 from harag.guidance.brochure import upsert_catalog_profile
@@ -18,6 +22,37 @@ logger = logging.getLogger("harag.demo_seed")
 
 SEED_OWNER = "library"
 SEED_SLUG = "demo-brochures"
+
+_state_lock = threading.Lock()
+
+
+@dataclass
+class LibraryBootstrapState:
+    """이중 층 부트스트랩 스냅샷 (/health·운영 API)."""
+
+    status: str = "idle"  # idle|running|ok|error
+    reconciled: int = 0
+    seeded: int = 0
+    error: str = ""
+    updated_at: float = 0.0
+
+    def snapshot(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+_bootstrap_state = LibraryBootstrapState()
+
+
+def get_bootstrap_state() -> dict[str, Any]:
+    with _state_lock:
+        return _bootstrap_state.snapshot()
+
+
+def _set_bootstrap(**kwargs) -> None:
+    with _state_lock:
+        for k, v in kwargs.items():
+            setattr(_bootstrap_state, k, v)
+        _bootstrap_state.updated_at = time.time()
 
 
 def default_demo_dir() -> Path:
@@ -235,3 +270,32 @@ def seed_demo_brochures(ingest, store, demo_dir: Path | None = None) -> int:
         except Exception:  # noqa: BLE001
             logger.exception("demo seed ingest failed %s", path.name)
     return done
+
+
+def bootstrap_library(
+    ingest, store, demo_dir: Path | None = None,
+) -> dict[str, Any]:
+    """reconcile(메타←Qdrant) 후 seed(demo_pdfs). 단일 부트스트랩 계약.
+
+    반환: {status, reconciled, seeded, error, updated_at}
+    """
+    _set_bootstrap(status="running", reconciled=0, seeded=0, error="")
+    reconciled = 0
+    seeded = 0
+    try:
+        meta = getattr(ingest, "_metadata", None)
+        if meta is None:
+            raise RuntimeError("ingest has no metadata store")
+        reconciled = int(reconcile_library_from_qdrant(store, meta) or 0)
+        seeded = int(seed_demo_brochures(ingest, store, demo_dir=demo_dir) or 0)
+        _set_bootstrap(
+            status="ok", reconciled=reconciled, seeded=seeded, error="")
+        logger.info(
+            "library bootstrap ok reconciled=%s seeded=%s",
+            reconciled, seeded)
+    except Exception as e:  # noqa: BLE001
+        err = f"{type(e).__name__}: {e}"
+        _set_bootstrap(
+            status="error", reconciled=reconciled, seeded=seeded, error=err)
+        logger.exception("library bootstrap failed")
+    return get_bootstrap_state()

@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from harag.api.acl_helpers import LIB_TAG
 from harag.indexing.demo_seed import (
-    SEED_OWNER, SEED_SLUG, reconcile_library_from_qdrant, seed_demo_brochures,
-    _file_id,
+    SEED_OWNER, SEED_SLUG, bootstrap_library, get_bootstrap_state,
+    reconcile_library_from_qdrant, seed_demo_brochures, _file_id,
 )
 from harag.storage.metadata_store import MetadataStore
 
@@ -174,3 +174,57 @@ def test_seed_skips_missing_dir(tmp_path):
     n = seed_demo_brochures(ingest, _Store(0), demo_dir=tmp_path / "absent")
     assert n == 0
     assert ingest.processed == []
+
+
+def test_bootstrap_library_reconcile_then_seed(tmp_path):
+    path = _pdf(tmp_path, "extra.pdf")
+    new_id = _file_id(path)
+    meta = MetadataStore(dsn="sqlite:///:memory:")
+    # Qdrant에만 있는 문서 + 새 PDF
+    store = _Store(2, doc_ids={"vec-only"})
+    ingest = _Ingest(meta, store)
+    out = bootstrap_library(ingest, store, demo_dir=tmp_path)
+    assert out["status"] == "ok"
+    assert out["reconciled"] >= 1
+    assert out["seeded"] >= 1
+    assert meta.get_for_owner("vec-only", SEED_OWNER).status == "ready"
+    assert meta.get_for_owner(new_id, SEED_OWNER).status == "ready"
+    snap = get_bootstrap_state()
+    assert snap["status"] == "ok"
+    assert snap["reconciled"] == out["reconciled"]
+
+
+def test_library_bootstrap_route_requires_doc_admin(tmp_path, monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from harag.api.auth import require_auth
+    from harag.api.routes_ingest import router
+    from harag.contracts.boundaries import AuthContext
+    from harag.storage.metadata_store import MetadataStore
+
+    # TestClient 스레드에서도 같은 DB를 쓰도록 파일 DSN (:memory:는 연결마다 비움).
+    db = tmp_path / "boot.db"
+    meta = MetadataStore(dsn=f"sqlite:///{db}")
+    store = _Store(1, doc_ids={"d1"})
+    ingest = _Ingest(meta, store)
+    monkeypatch.setattr("harag.api.deps.get_ingest", lambda: ingest)
+    monkeypatch.setattr(
+        "harag.api.deps.get_vector_store_or_none", lambda: store)
+
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[require_auth] = lambda: AuthContext(
+        user_id="u", acl_tags=frozenset({"owner:u"}))
+    client = TestClient(app)
+    assert client.post("/v1/library/bootstrap?background=false").status_code == 403
+
+    app.dependency_overrides[require_auth] = lambda: AuthContext(
+        user_id="a",
+        acl_tags=frozenset({"owner:a", "role:doc_admin"}))
+    res = client.post("/v1/library/bootstrap?background=false")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["mode"] == "sync"
+    assert body["bootstrap"]["status"] == "ok"
+    assert body["bootstrap"]["reconciled"] >= 1

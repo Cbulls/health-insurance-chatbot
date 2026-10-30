@@ -279,20 +279,16 @@ def _build_and_inject() -> None:
         type(rewrite_llm).__name__)
 
     def _run_demo_seed() -> None:
-        from harag.indexing.demo_seed import (
-            reconcile_library_from_qdrant, seed_demo_brochures,
-        )
+        from harag.indexing.demo_seed import bootstrap_library
+        # Qdrant→메타 reconcile 후 demo_pdfs 시드 (이중 층 계약).
         try:
-            # Qdrant만 있고 메타DB가 빈 split-brain(AWS 등) → 메타만 복구.
-            r = reconcile_library_from_qdrant(store, metadata)
-            logger.info("library reconcile from qdrant count=%s", r)
+            out = bootstrap_library(ingest, store)
+            logger.info(
+                "library bootstrap done status=%s reconciled=%s seeded=%s",
+                out.get("status"), out.get("reconciled"), out.get("seeded"))
         except Exception:  # noqa: BLE001
-            logger.exception("library reconcile failed — continuing seed")
-        try:
-            n = seed_demo_brochures(ingest, store)
-            logger.info("demo brochure seed done count=%s", n)
-        except Exception:  # noqa: BLE001
-            logger.exception("demo brochure seed failed — guidance still works")
+            logger.exception(
+                "library bootstrap failed — guidance still works")
 
     threading.Thread(
         target=_run_demo_seed, name="demo-seed", daemon=True).start()
@@ -357,8 +353,13 @@ def create_app() -> FastAPI:
                 body["capacity"] = cap
 
         def _library_docs_status():
-            """메타 library ready 수 vs Qdrant points — split-brain 관측."""
-            out: dict = {}
+            """이중 층: 메타 ready vs Qdrant library 문서 수 + bootstrap 상태."""
+            from harag.indexing.demo_seed import get_bootstrap_state
+
+            out: dict = {
+                "library_bootstrap": get_bootstrap_state(),
+            }
+            ready = 0
             try:
                 ingest = get_ingest()
                 meta = getattr(ingest, "_metadata", None)
@@ -369,15 +370,23 @@ def create_app() -> FastAPI:
                         if getattr(r, "status", "") == "ready")
                     out["library_docs"] = len(rows)
                     out["library_docs_ready"] = ready
+                    out["library_meta_ready"] = ready
             except Exception:  # noqa: BLE001
                 out["library_docs_error"] = True
-            pts = None
-            if isinstance(body.get("capacity"), dict):
-                pts = body["capacity"].get("points")
-            if pts is not None and "library_docs_ready" in out:
-                # points>0 인데 ready 메타 0 → AWS 빈 DB + 공유 Qdrant 전형
+            vector_docs = 0
+            try:
+                if store is not None:
+                    list_fn = getattr(
+                        store, "list_library_document_sources", None)
+                    if callable(list_fn):
+                        vector_docs = len(list(list_fn() or []))
+            except Exception:  # noqa: BLE001
+                out["library_vector_docs_error"] = True
+            out["library_vector_docs"] = vector_docs
+            # library 벡터는 있는데 메타 ready 0 → split-brain
+            if "library_docs_ready" in out or "library_meta_ready" in out:
                 out["split_brain"] = (
-                    int(pts or 0) > 0 and int(out["library_docs_ready"]) == 0)
+                    vector_docs > 0 and int(ready) == 0)
             return out
 
         body.update(await asyncio.to_thread(_library_docs_status))

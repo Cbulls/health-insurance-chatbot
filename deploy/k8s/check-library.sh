@@ -16,21 +16,23 @@ health="$(curl -fsS "${HOST}/health")" || {
 echo "$health" | python3 -c '
 import json,sys
 b=json.load(sys.stdin)
-keys=("status","library_docs","library_docs_ready","split_brain","library_docs_error")
+keys=("status","library_docs","library_docs_ready","library_meta_ready",
+      "library_vector_docs","split_brain","library_docs_error","library_bootstrap")
 for k in keys:
     if k in b:
         print(f"  {k}: {b[k]}")
-ready=int(b.get("library_docs_ready") or 0)
+ready=int(b.get("library_meta_ready") or b.get("library_docs_ready") or 0)
+vecs=int(b.get("library_vector_docs") or 0)
 split=bool(b.get("split_brain"))
 if split:
-    print("DIAG: split_brain — Qdrant에 lib 벡터는 있는데 메타 ready=0.")
-    print("  → API 재기동으로 reconcile 유도, DATABASE_URL 쓰기 가능 여부 확인.")
+    print("DIAG: split_brain — library 벡터는 있는데 메타 ready=0.")
+    print("  → POST /v1/library/bootstrap 또는 API 재기동, DATABASE_URL 확인.")
     sys.exit(2)
 if ready == 0:
-    print("DIAG: library_docs_ready=0 (cold empty 가능).")
-    print("  → pod /app/demo_pdfs PDF 존재·임베딩 시크릿·demo-seed 로그 확인.")
+    print("DIAG: library_meta_ready=0 (cold empty 가능). vector_docs=%s" % vecs)
+    print("  → pod /app/demo_pdfs·임베딩 시크릿·library_bootstrap 로그 확인.")
     sys.exit(3)
-print(f"OK: library_docs_ready={ready}")
+print(f"OK: library_meta_ready={ready} library_vector_docs={vecs}")
 '
 
 if [[ -n "$API_DEPLOY" ]]; then
