@@ -1,6 +1,6 @@
 # Kubernetes 골격 (Phase 4)
 
-**새 이미지 빌드·ECR 푸시·롤아웃·검증 전체 절차:** 루트 [README.md](../../README.md) 「AWS — 새 이미지 배포 (인프라)」.
+**새 이미지 빌드·ECR 푸시·롤아웃·검증 전체 절차:** 루트 [README.md](../../README.md) 「AWS 인프라 — 할 일」.
 
 다중 AZ·HPA가 필요할 때 사용. 시크릿은 클러스터 Secret / External Secrets로 주입.
 
