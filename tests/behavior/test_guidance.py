@@ -81,19 +81,25 @@ def test_why_fallback_honorific_and_two_types():
         "", symptom_codes=["cough", "night_sweat"], concern="inpatient")
     assert not g.abstained
     assert "습니다" in g.explanation_why
-    assert "자주 느끼는" in g.explanation_why
-    assert "놓치기 쉬운" in g.explanation_why
-    assert "## 공공데이터 해석" in g.explanation_why
+    assert "## 무엇을 의미하나요" in g.explanation_why
+    assert "## 진료·생활에서 보면 좋은 점" in g.explanation_why
+    assert "## 보험에서는 보통 이렇게 봅니다" in g.explanation_why
     assert "## 주의·참고" in g.explanation_why
     assert "## 비교할 상품 2개" in g.explanation_why
     assert "confidence" not in g.explanation_why
-    assert "확진이 아닙니다" in g.explanation_why
+    assert "확진이 아니" in g.explanation_why
     assert "뿐 이 아닙니다" not in g.explanation_why
     assert "질병관리청" in g.explanation_why
+    assert "국가건강정보포털에 따르면" in g.explanation_why
     assert "건강보험심사평가원" in g.explanation_why
+    assert "공공 참고 카드" in g.explanation_why
+    assert "의료 진단이 아니며" in g.explanation_why
     assert "참고용 안내입니다" not in g.explanation_why
+    assert "보험 실무 논리" not in g.explanation_why
+    assert "코호트" not in g.explanation_why
     assert "(R" not in g.explanation_why
     assert "R05" not in g.explanation_why
+    assert "한 병으로 단정하지 않습니다" in g.explanation_why
     cough = next(s for s in g.profile["symptoms"] if s["code"] == "cough")
     ov = cough.get("portal_overview", {}) or {}
     assert ov.get("text")
@@ -103,6 +109,24 @@ def test_why_fallback_honorific_and_two_types():
     assert g.ref_stats == []
     assert "[문서" not in g.explanation_why
     assert "[진단 단정 삭제]" not in g.explanation
+
+
+def test_slot_brief_leg_cramp_muscle_and_coverages():
+    g = GuidanceService().guide(
+        "",
+        symptom_codes=["fatigue", "headache", "leg_cramp"],
+        occupation="field",
+        concern="outpatient",
+    )
+    why = g.explanation_why or ""
+    assert "## 무엇을 의미하나요" in why
+    assert "근육경련" in why
+    assert "이상운동" not in why
+    assert "보험 실무 논리" not in why
+    assert "관련 가능 영역" not in why
+    assert "실손 통원" in why
+    assert "현장·운전" in why or "상해" in why
+    assert "(R" not in why
 
 
 def test_portal_overviews_have_no_filler():
@@ -125,20 +149,27 @@ def test_why_fallback_mentions_matched_products():
     text = _why_fallback(rules, products=[{
         "name": "테스트건강보험",
         "insurer": "테스트생명",
-        "matched_coverages": ["실손 통원"],
+        "matched_coverages": ["실손 통원", "실손 검사"],
+        "summary": "정액 진단·입원 특약과 실손 특약을 함께 구성할 수 있는 상품입니다.",
     }])
     assert "테스트건강보험" in text
     assert "실손 통원" in text
+    assert "실손 검사" in text
     assert "## 비교할 상품 2개" in text
-    assert "비교하기 좋습니다" in text
+    assert "매치되며" in text
+    assert "정액 진단" in text
 
 
 def test_why_strips_doc_markers():
     class MarkerLLM:
         def complete(self, q, ctx, cites):
             return (
-                "## 공공데이터 해석\n"
-                "자주 느끼는 증상과 놓치기 쉬운 불편을 함께 반영했습니다.\n"
+                "## 무엇을 의미하나요\n"
+                "기침은 기도 자극과 연결해 볼 수 있습니다.\n"
+                "## 진료·생활에서 보면 좋은 점\n"
+                "불편이 반복되면 진료에서 확인해 보세요.\n"
+                "## 보험에서는 보통 이렇게 봅니다\n"
+                "실손 통원을 먼저 살펴보는 편이 흔합니다.\n"
                 "## 주의·참고\n"
                 "확진이 아닙니다.\n"
                 "## 비교할 상품 2개\n"
@@ -148,7 +179,7 @@ def test_why_strips_doc_markers():
     g = GuidanceService(llm=MarkerLLM()).guide(
         "", symptom_codes=["cough"])
     assert "[문서" not in g.explanation_why
-    assert "## 공공데이터 해석" in g.explanation_why
+    assert "## 무엇을 의미하나요" in g.explanation_why
     assert "관련이 있습니다" in g.explanation_why
 
 
@@ -166,9 +197,11 @@ def test_guide_template_has_overlap_not_age_band():
     g = GuidanceService().guide(
         "허리가 아파요", occupation="office", concern="outpatient",
         age_band="40-49")
-    # 상황 브리프에는 선택 연령 라벨을 쓰되, 「당신 연령대」식 추정 문구는 쓰지 않는다.
+    # 슬롯 브리프는 보장·직업·걱정 축만 쓰고, 「당신 연령대」식 추정은 쓰지 않는다.
     assert "당신 연령대" not in g.explanation
-    assert "40대" in g.explanation_why
+    assert "당신 연령대" not in (g.explanation_why or "")
+    assert "실손 통원" in (g.explanation_why or "")
+    assert "사무직" in (g.explanation_why or "")
 
 
 def test_guide_template_has_disclaimer_and_no_company():
@@ -530,14 +563,18 @@ def test_guide_returns_symptom_clusters_and_fallback_copy():
     assert g.symptom_clusters
     assert g.symptom_clusters[0]["id"] == "fatigue_headache_numbness"
     why = g.explanation_why or ""
-    assert "관련 가능 영역" in why
-    assert "질병관리청" in why
-    assert "확진이 아닙니다" in why
-    assert "직업별 질환 통계는 아직" in why
+    assert "## 무엇을 의미하나요" in why
+    assert "## 진료·생활에서 보면 좋은 점" in why
+    assert "즉시 진료" in why  # care_hint
+    assert "확진이 아니" in why
+    assert "보험 실무 논리" not in why
+    assert "관련 가능 영역" not in why
     assert "유병률" not in why
     assert "전조 증상" not in why
     assert "(R" not in why
     assert "참고용 안내입니다" not in why
+    assert "코호트" not in why
+    assert "현장·운전" in why or "스트레칭" in why
 
 
 def test_guard_blocks_precursor_and_risk_wording():
@@ -558,3 +595,11 @@ def test_guard_strips_kcd_paren_and_filler():
     assert "(R53)" not in text
     assert "참고용 안내입니다" not in text
     assert "권태 및 피로" in text
+
+
+def test_guard_strips_empty_link_phrase():
+    text, flags = guard_text(
+        "40대 남성이라는 정보와 실손 통원을 보험 실무 논리로 연결하여 살펴볼 수 있습니다.",
+        ["실손 통원"])
+    assert "empty_link_stripped" in flags
+    assert "실무 논리" not in text

@@ -80,18 +80,8 @@ def _scan_query_hard(query: str):
 
 def _is_embedding_failure(exc: BaseException) -> bool:
     """Jina 잔액·429 등 임베딩 API 실패 (스트림을 error로 떨어뜨리지 않음)."""
-    from harag.embedding.api_embedder import EmbeddingRateLimitError
-    if isinstance(exc, EmbeddingRateLimitError):
-        return True
-    name = type(exc).__name__
-    if "Embedding" in name and ("Rate" in name or "Error" in name):
-        return True
-    msg = str(exc).lower()
-    return (
-        "insufficient" in msg
-        or "insufficient account balance" in msg
-        or "embedding" in msg and ("429" in msg or "403" in msg)
-    )
+    from harag.embedding.api_embedder import is_embedding_failure
+    return is_embedding_failure(exc)
 
 
 MATCH_CONTEXT_CHUNK_ID = "match-context"

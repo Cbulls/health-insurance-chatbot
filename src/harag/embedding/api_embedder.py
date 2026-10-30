@@ -26,6 +26,21 @@ class EmbeddingRateLimitError(Exception):
     """임베딩 API 429/5xx가 재시도 후에도 남음."""
 
 
+def is_embedding_failure(exc: BaseException) -> bool:
+    """Jina 잔액·429·403 등 dense 임베딩 API 실패 여부."""
+    if isinstance(exc, EmbeddingRateLimitError):
+        return True
+    name = type(exc).__name__
+    if "Embedding" in name and ("Rate" in name or "Error" in name):
+        return True
+    msg = str(exc).lower()
+    return (
+        "insufficient" in msg
+        or "insufficient account balance" in msg
+        or ("embedding" in msg and ("429" in msg or "403" in msg))
+    )
+
+
 _TOKEN = re.compile(r"[0-9A-Za-z가-힣]+")
 
 

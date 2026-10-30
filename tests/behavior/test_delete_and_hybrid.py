@@ -110,3 +110,50 @@ def test_HY03_dense_only_fallback_when_hybrid_disabled():
     store.index([_embedded("c1", "d1", "출장비 한도", dim=32)])
     auth = AuthContext(user_id="u1", acl_tags=frozenset({"owner:u1"}))
     assert store.retrieve("출장비", auth, k=3)
+
+
+def test_HY04_sparse_only_when_dense_embedding_fails():
+    """Jina 잔액 등으로 dense encode 실패해도 hybrid sparse로 검색한다."""
+    from harag.embedding.api_embedder import EmbeddingRateLimitError
+
+    class BoomEmbed:
+        model_id = "boom"
+
+        def encode(self, texts, task=None):
+            raise EmbeddingRateLimitError("403 insufficient balance")
+
+    good = LocalHashEmbeddingModel(dim=64)
+    store = QdrantVectorStore(
+        good, dim=64, collection="hy04_sparse_fb", disk_budget_mb=0)
+    assert store._hybrid is True
+    embedder = HybridEmbedder(good, SimpleMorph())
+    chunks = [
+        Chunk(meta=_meta("c1", "d1"), text="건강보험 피부양자 등록 절차"),
+        Chunk(meta=_meta("c2", "d1"), text="출장비 정산 기한은 다음 달 말일"),
+    ]
+    assert store.index(embedder.embed(chunks)) == 2
+
+    store._embed = BoomEmbed()
+    auth = AuthContext(user_id="u1", acl_tags=frozenset({"owner:u1"}))
+    hits = store.retrieve("피부양자 등록은?", auth, k=2)
+    assert hits
+    assert any("피부양자" in h.chunk.text for h in hits)
+
+
+def test_HY05_dense_fail_without_hybrid_raises():
+    from harag.embedding.api_embedder import EmbeddingRateLimitError
+
+    class BoomEmbed:
+        model_id = "boom"
+
+        def encode(self, texts, task=None):
+            raise EmbeddingRateLimitError("403 insufficient balance")
+
+    store = QdrantVectorStore(
+        LocalHashEmbeddingModel(dim=32), dim=32,
+        collection="hy05_no_hyb", disk_budget_mb=0, hybrid=False)
+    store.index([_embedded("c1", "d1", "출장비 한도", dim=32)])
+    store._embed = BoomEmbed()
+    auth = AuthContext(user_id="u1", acl_tags=frozenset({"owner:u1"}))
+    with pytest.raises(EmbeddingRateLimitError):
+        store.retrieve("출장비", auth, k=3)

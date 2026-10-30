@@ -255,36 +255,40 @@ class GuidanceService:
         ]
         product_clause = (
             "## 비교할 상품 2개 섹션에서는 사실에 적힌 상품만 이름으로 언급하고, "
-            "각 상품이 증상·보장과 왜 맞는지 1~2문장으로 적어라. "
+            "상품마다 1~2문장으로 「{상품명}은 {matched 담보}이 매치되며, "
+            "{summary 핵심}입니다」 패턴으로 적어라. "
+            "왜 골랐는지가 한눈에 들어오게, 전문 용어·가입 권유 없이 쉽게 써라. "
             "이 섹션 밖에는 상품명을 쓰지 마라. "
             if product_names else
             "## 비교할 상품 2개 섹션에는 상품명이 없음을 짧게 알리고 "
             "보장 유형만 정리하라. "
         )
         prompt_q = (
-            "너는 공공 참고 자료와 보험 보장을 연결하는 보험 안내 전문가다. "
+            "너는 공공 참고 자료와 보험 보장을 쉽게 풀어 주는 안내 도우미다. "
             "확진·진단 단정·모집·가입 강요는 하지 않는다. "
-            "아래 사실만 보고 세 헤딩을 이 순서로 모두 출력하라: "
-            "## 공공데이터 해석 / ## 주의·참고 / ## 비교할 상품 2개. "
-            "모든 문장은 존댓말(합니다/습니다)로 쓰고, "
+            "아래 사실의 슬롯만 윤문하고, 다섯 헤딩을 이 순서로 모두 출력하라: "
+            "## 무엇을 의미하나요 / ## 진료·생활에서 보면 좋은 점 / "
+            "## 보험에서는 보통 이렇게 봅니다 / ## 주의·참고 / ## 비교할 상품 2개. "
+            "모든 문장은 짧고 쉬운 존댓말(합니다/습니다)로 쓰고, "
             "명사형 종결(~임, ~함, ~이다)과 [문서 N] 마커는 쓰지 마라. "
-            "유병률·위험하다·위험성·전조·확진됩니다·진단됩니다·confidence 숫자는 쓰지 마라. "
-            "「참고용 안내입니다」「이 안내는 참고용」 같은 필러 문장은 쓰지 마라. "
+            "유병률·위험하다·위험성·전조·확진됩니다·진단됩니다·confidence·코호트 같은 "
+            "어려운 말은 쓰지 마라. "
+            "「참고용 안내입니다」「이 안내는 참고용」「보험 실무 논리로 연결」 "
+            "같은 빈 연결·필러 문장은 쓰지 마라. "
             "KCD·상병코드·(R53) 같은 괄호 코드는 브리프에 쓰지 마라. 상병명은 한글만. "
-            "## 공공데이터 해석은 딱 세 짧은 문단만 써라. "
-            "1) 반드시 「질병관리청 국가건강정보포털」을 명시하고, "
-            "자주 느끼는 증상과 놓치기 쉬운 불편을 한글 상병명·가능 영역"
-            "(있으면 증상 묶음 관련 가능 영역)으로만 논리 연결하라. 확진·전조 금지. "
-            "2) 반드시 「건강보험심사평가원 질병정보서비스」를 명시하고, "
-            "사실의 저장본/연령·성별 코호트가 있으면 그에 맞춰 "
-            "외래·입원 청구 패턴만 요약하라. 원시 건수·개요 전문 반복 금지. "
-            "자세한 숫자는 아래 공공 카드에 있다고 한 줄로만 안내하라. "
-            "3) 직업·걱정·연령·성별(사실에 있을 때만)을 "
-            "통원·검사·입원 등 보장 축과 보험 실무 논리로 연결하라. "
-            "직업별 질환 유병 통계가 사실에 없으면 만들지 마라. "
+            "「전신/신경과 관련 가능 영역」 같은 영역 라벨을 나열하지 마라. "
+            "## 무엇을 의미하나요: 사실의 brief_plain·overview_hint·한글 상병명만으로 "
+            "증상별 쉬운 연결 1~2문장. 여러 증상이면 "
+            "『한 병으로 단정하지 않습니다』를 덧붙여라. "
+            "심평원 통계가 있으면 상병별 한 줄(외래 위주/입원 비중)만, "
+            "없으면 『아래 공공 참고 카드』만. 여러 상병을 한 문장으로 뭉개지 마라. "
+            "## 진료·생활에서 보면 좋은 점: 직업(현장·운전/서비스 등) 닫힌 문장과 "
+            "care_hint만. 유병률·전조 창작 금지. "
+            "## 보험에서는 보통 이렇게 봅니다: 사실에 있는 보장 유형·직업·걱정만. "
+            "상품명·실무 논리 필러 금지. "
+            "## 주의·참고: 의료 진단 아님, 상품 모집·권유 아님, "
+            "증상·보장 연결은 가능 영역일 뿐 확진 아님, 약관·전문가 상담. "
             "portal_overview 전문을 다시 쓰지 마라. "
-            "## 주의·참고는 확진이 아님·가입 권유가 아님만 두 문장 이내로. "
-            "면책 문장을 길게 재서술하지 마라. "
             + product_clause +
             "「가입하세요」「가입을 추천」「가입을 권유」는 쓰지 마라. "
             f"보장 유형은 다음만 언급하라: {allowed}. "
@@ -714,51 +718,207 @@ def _format_kcd(kcd: str) -> str:
     return re.sub(r"\s+", "", str(kcd or ""))
 
 
+def _join_ko_list(items: list[str]) -> str:
+    xs = [str(x).strip() for x in items if str(x).strip()]
+    if not xs:
+        return ""
+    if len(xs) == 1:
+        return xs[0]
+    if len(xs) == 2:
+        return f"{xs[0]}과 {xs[1]}"
+    return ", ".join(xs[:-1]) + f", {xs[-1]}"
+
+
+def _inpatient_level(share: float) -> str:
+    if share <= 0.08:
+        return "외래 위주"
+    if share <= 0.15:
+        return "외래 위주이며 입원 비중은 낮은 편"
+    return "외래와 입원을 함께 볼 수 있는 편"
+
+
 def _claim_pattern_summary(
         ref_stats: list[dict] | None,
         age_band: str | None = None,
         sex: str | None = None) -> str:
+    """상병별 1줄 요약. 통계 없으면 공공 카드 안내만."""
     src = "건강보험심사평가원 질병정보서비스"
     rows = list(ref_stats or [])
-    cached = bool(rows) and all(bool(s.get("cached", True)) for s in rows)
-    src_label = f"{src}(저장본)" if cached else src
-    age_lab = AGE_QUERY_LABELS.get(age_band or "")
-    sex_lab = SEX_QUERY_LABELS.get(sex or "")
-    cohort = ""
-    if age_lab and sex_lab:
-        cohort = f"같은 {age_lab} {sex_lab} 코호트의 "
-    elif age_lab:
-        cohort = f"같은 {age_lab} 코호트의 "
-    elif sex_lab:
-        cohort = f"같은 {sex_lab} 코호트의 "
-    if not rows:
-        return (
-            f"{src} 기준 청구 규모·입원 비중 등 자세한 숫자는 "
-            "아래 공공 참고 카드에서 확인해 주세요."
-        )
-    shares: list[float] = []
+    bits: list[str] = []
+    seen: set[str] = set()
     for s in rows:
+        name = str(s.get("name") or "").strip() or "관련 상병"
+        if name in seen:
+            continue
         try:
-            if s.get("inpatient_share") is not None:
-                shares.append(float(s["inpatient_share"]))
+            if s.get("inpatient_share") is None:
+                continue
+            share = float(s["inpatient_share"])
         except (TypeError, ValueError):
             continue
-    if not shares:
-        return (
-            f"{src_label}의 {cohort}청구 참고 규모가 있으며, "
-            "자세한 숫자는 아래 공공 참고 카드에서 확인해 주세요."
-        )
-    mx = max(shares)
-    if mx <= 0.08:
-        level = "대체로 외래 청구가 중심"
-    elif mx <= 0.15:
-        level = "외래 중심이며 일부는 입원 비중이 조금 더 있음"
-    else:
-        level = "외래와 입원을 함께 살펴볼 여지가 있음"
+        seen.add(name)
+        bits.append(f"{name}: {_inpatient_level(share)}")
+    if not bits:
+        return f"{src} 통계는 아래 공공 참고 카드를 확인해 주세요."
     return (
-        f"{src_label}의 {cohort}청구 패턴을 보면 {level}입니다. "
-        "건수·입원 비중은 아래 공공 참고 카드에 두었습니다."
+        f"{src} 기준으로 보면 "
+        + " / ".join(bits)
+        + ". 자세한 숫자는 아래 공공 참고 카드에 있습니다."
     )
+
+
+_OCC_CARE = {
+    "field": (
+        "현장·운전 업무에서는 장시간 자세·수분 부족·수면 부족이 "
+        "불편을 키울 수 있어, 스트레칭과 수분·수면 리듬을 함께 "
+        "살피는 편이 좋습니다."
+    ),
+    "service": (
+        "서비스직에서는 장시간 서 있거나 불규칙한 근무가 "
+        "피로·경련 등에 영향을 줄 수 있어, 휴식·수분·수면을 "
+        "함께 살피는 편이 좋습니다."
+    ),
+    "office": (
+        "사무직에서는 장시간 앉은 자세와 화면 작업이 두통·피로와 "
+        "겹칠 수 있어, 자세·휴식·수면을 함께 살피는 편이 좋습니다."
+    ),
+}
+
+
+def _meaning_lines(rules: RuleResult, specs: dict) -> list[str]:
+    """증상별 brief_plain / portal 첫문장 / 라벨→상병명 연결."""
+    out: list[str] = []
+    for h in rules.symptoms:
+        spec = specs.get(h.code) or {}
+        lab = (h.label or "").strip() or "선택하신 증상"
+        plain = str(spec.get("brief_plain") or "").strip()
+        if plain:
+            out.append(plain if plain.endswith(("다", "요"))
+                       else plain.rstrip(". ") + ".")
+            continue
+        overview = portal_overview_of(spec)
+        if overview and overview.get("text"):
+            first = overview["text"].split(".")[0].strip()
+            if first:
+                out.append(
+                    "질병관리청 국가건강정보포털에 따르면, "
+                    + first + "."
+                )
+                continue
+        names = [
+            str(c.get("name") or "").strip()
+            for c in ref_conditions_of(spec)
+            if str(c.get("name") or "").strip()
+        ]
+        if names:
+            out.append(
+                f"{lab}은 {_join_ko_list(names)}과 연결해 볼 수 있습니다."
+            )
+        else:
+            out.append(f"{lab}을 포털 기준으로 함께 살펴볼 수 있습니다.")
+    if len(rules.symptoms) >= 2:
+        out.append(
+            "여러 불편이 함께 있어도 한 병으로 단정하지 않습니다."
+        )
+    return out
+
+
+def _care_lines(rules: RuleResult,
+                symptom_clusters: list[dict] | None) -> list[str]:
+    bits: list[str] = []
+    occ = rules.occupation or ""
+    if occ in _OCC_CARE:
+        bits.append(_OCC_CARE[occ])
+    for cl in symptom_clusters or []:
+        care = str(cl.get("care_hint") or "").strip()
+        if care and care not in bits:
+            bits.append(care)
+            break
+    if not bits:
+        bits.append(
+            "불편이 반복되거나 일상생활에 지장을 주면 "
+            "진료에서 양상과 동반 증상을 함께 확인해 보세요."
+        )
+    return bits
+
+
+def _insurance_lines(rules: RuleResult) -> list[str]:
+    codes = {c.code for c in rules.coverages}
+    parts: list[str] = []
+    soft: list[str] = []
+    if "outpatient" in codes:
+        soft.append("실손 통원")
+    if "tests" in codes:
+        soft.append("검사")
+    if soft:
+        joined = "·".join(soft)
+        if "inpatient" in codes:
+            parts.append(
+                f"{joined}(필요 시 입원)을 먼저 살펴보는 편이 흔합니다."
+            )
+        else:
+            parts.append(f"{joined}을 먼저 살펴보는 편이 흔합니다.")
+    elif "inpatient" in codes:
+        parts.append("실손 입원을 중심으로 살펴볼 수 있습니다.")
+    if rules.occupation == "field" and "injury" in codes:
+        parts.append(
+            "현장·운전이면 상해 관련 실손 축도 함께 둡니다."
+        )
+    elif "injury" in codes:
+        parts.append("상해 관련 실손도 함께 둘 수 있습니다.")
+    if "tests" in (rules.concerns or []) or "tests" in codes:
+        parts.append("정액 진단비는 선택 층으로 보면 됩니다.")
+    if not parts:
+        labels = [c.label for c in rules.coverages]
+        if labels:
+            parts.append(
+                f"{_join_ko_list(labels)} 보장 유형을 중심으로 "
+                "살펴볼 수 있습니다."
+            )
+        else:
+            parts.append(
+                "선택하신 불편과 연결된 보장 유형을 중심으로 "
+                "살펴볼 수 있습니다."
+            )
+    return parts
+
+
+def _product_why_line(p: dict) -> str:
+    """비교 상품 한 줄: '{이름}은 {담보}이 매치되며, {요약}입니다.'"""
+    name = (p.get("name") or p.get("title") or "").strip()
+    if not name:
+        return ""
+    kinds = [str(k).strip() for k in (p.get("matched_coverages") or []) if str(k).strip()]
+    summary = (p.get("summary") or "").strip()
+    if summary:
+        for sep in ("다. ", "요. "):
+            if sep in summary:
+                summary = summary.split(sep, 1)[0] + sep[0]
+                break
+        if len(summary) > 110:
+            summary = summary[:108].rstrip("., ") + "…"
+        if summary.endswith("입니다") or summary.endswith("습니다"):
+            pass
+        elif summary.endswith("다") or summary.endswith("요"):
+            pass
+        else:
+            summary = summary.rstrip(". ") + "입니다"
+    else:
+        cost = (
+            str(p.get("cost_nature_label") or p.get("cost_nature") or "")
+            .strip()
+        )
+        summary = (
+            f"{cost} 성격으로 살펴볼 수 있는 상품입니다"
+            if cost else
+            "선택한 보장과 맞춰 볼 수 있는 상품요약서입니다"
+        )
+    if kinds:
+        joined = _join_ko_list(kinds)
+        if "보장" not in joined:
+            joined = f"{joined} 보장"
+        return f"{name}은 {joined}이 매치되며, {summary}"
+    return f"{name}은 {summary}"
 
 
 def _why_fallback(rules: RuleResult,
@@ -768,120 +928,32 @@ def _why_fallback(rules: RuleResult,
                   sex: str | None = None,
                   symptom_clusters: list[dict] | None = None,
                   cluster_stats: list[dict] | None = None) -> str:
-    """공공데이터 해석(3문단) · 주의·참고 · 비교 상품 2개 폴백."""
-    usual_s, hidden_s = _symptom_type_labels(rules)
+    """모범답안형 슬롯: 의미·진료·보험·주의·비교상품."""
+    del age_band, sex  # 슬롯은 coverages·직업·걱정만 사용
     kb = load_kb()
     specs = kb.get("symptoms") or {}
-    name_bits: list[str] = []
-    seen_names: set[str] = set()
-    for h in rules.symptoms:
-        for cond in ref_conditions_of(specs.get(h.code)):
-            nm = str(cond.get("name") or "").strip()
-            if not nm or nm in seen_names:
-                continue
-            seen_names.add(nm)
-            name_bits.append(f"「{nm}」")
-    area_labels = [a.label for a in rules.areas[:4]]
-    fam_labels: list[str] = []
-    for cl in symptom_clusters or []:
-        for fam in cl.get("related_families") or []:
-            lab = (fam.get("label") or "").strip()
-            if lab and lab not in fam_labels:
-                fam_labels.append(lab)
-    lines: list[str] = ["## 공공데이터 해석"]
-    p1 = (
-        "질병관리청 국가건강정보포털 개요를 기준으로, "
-        f"자주 느끼는 증상({usual_s})과 놓치기 쉬운 불편({hidden_s})은"
-    )
-    if name_bits:
-        p1 += " 각각 " + ", ".join(name_bits) + " 등으로 연결됩니다."
-    else:
-        p1 += " 함께 묶어 살펴봅니다."
-    if fam_labels:
-        p1 += (
-            " 이 조합은 "
-            + ", ".join(fam_labels)
-            + "을(를) 함께 점검할 때 쓰는 참고 축이며, "
-            "특정 질환의 확진이 아닙니다."
-        )
-    elif area_labels:
-        p1 += (
-            " 이 조합은 "
-            + ", ".join(area_labels)
-            + " 영역을 함께 점검할 때 쓰는 참고 축이며, "
-            "특정 질환의 확진이 아닙니다."
-        )
-    else:
-        p1 += " 특정 질환의 확진이 아닙니다."
-    lines.append(p1)
+    lines: list[str] = ["## 무엇을 의미하나요"]
+    for bit in _meaning_lines(rules, specs):
+        lines.append(bit)
     stats_for_summary = list(cluster_stats or []) or list(ref_stats or [])
-    lines.append(_claim_pattern_summary(
-        stats_for_summary, age_band=age_band, sex=sex))
+    lines.append(_claim_pattern_summary(stats_for_summary))
 
-    cov_labels = [c.label for c in rules.coverages]
-    occ_lab = OCCUPATIONS.get(rules.occupation or "")
-    concern_labs = [CONCERNS[c] for c in rules.concerns] if rules.concerns else []
-    age_lab = AGE_QUERY_LABELS.get(age_band or "")
-    sex_lab = SEX_QUERY_LABELS.get(sex or "")
-    p3_parts: list[str] = []
-    who = " · ".join(x for x in (occ_lab, age_lab, sex_lab) if x)
-    if who and concern_labs:
-        p3_parts.append(
-            f"{who} 맥락에서 "
-            + ", ".join(concern_labs)
-            + "을(를) 보시면"
-        )
-    elif who:
-        p3_parts.append(f"{who} 맥락을 반영하면")
-    elif concern_labs:
-        p3_parts.append(
-            ", ".join(concern_labs) + "을(를) 보시면"
-        )
-    if rules.occupation and (symptom_clusters or []):
-        p3_parts.append(
-            "직업별 질환 통계는 아직 연동되지 않아 "
-            "보장 규칙 가중·맥락으로만 반영합니다"
-        )
-    if cov_labels:
-        lead = (
-            "원인 확인용 통원·검사 축과 입원 시 보장 축을 함께 보는 편이 "
-            "실무적으로 맞습니다. "
-            if any(c in ("inpatient", "surgery") for c in rules.concerns)
-            else ""
-        )
-        if list(products or []):
-            p3_parts.append(
-                lead
-                + "이에 맞춰 "
-                + ", ".join(cov_labels)
-                + " 축을 중심으로 아래 비교 상품 2개를 골랐습니다"
-            )
-        else:
-            p3_parts.append(
-                lead
-                + "이에 맞춰 "
-                + ", ".join(cov_labels)
-                + " 축을 중심으로 보시면 됩니다"
-            )
-    if not p3_parts:
-        p3_parts.append(
-            "선택하신 불편과 연결된 보장 유형을 함께 보시면 됩니다"
-        )
-    # Join with ". " carefully
-    p3 = ". ".join(p.rstrip(". ") for p in p3_parts) + "."
-    lines.append(p3)
+    lines.append("")
+    lines.append("## 진료·생활에서 보면 좋은 점")
+    for bit in _care_lines(rules, symptom_clusters):
+        lines.append(bit)
+
+    lines.append("")
+    lines.append("## 보험에서는 보통 이렇게 봅니다")
+    for bit in _insurance_lines(rules):
+        lines.append(bit)
 
     lines.append("")
     lines.append("## 주의·참고")
-    care = ""
-    for cl in symptom_clusters or []:
-        if cl.get("care_hint"):
-            care = cl["care_hint"]
-            break
     lines.append(
-        "이 안내는 확진이 아니며, 특정 상품의 모집·권유가 아닙니다. "
-        "자세한 공공 수치와 개요는 아래 카드를 참고해 주세요."
-        + ((" " + care) if care else "")
+        "이 안내는 의료 진단이 아니며 특정 보험 상품의 모집이나 권유가 아닙니다. "
+        "증상과 보장의 연결은 가능한 관련 영역일 뿐 확진이 아니며 "
+        "가입이나 청구 전에는 약관과 전문가 상담을 확인해야 합니다."
     )
 
     lines.append("")
@@ -892,19 +964,9 @@ def _why_fallback(rules: RuleResult,
             "지금은 비교할 공용 설명서가 없습니다. "
             "보장 유형만 참고해 주세요.")
     for p in picked:
-        name = (p.get("name") or p.get("title") or "").strip()
-        if not name:
-            continue
-        kinds = p.get("matched_coverages") or []
-        if kinds:
-            joined = ", ".join(str(k) for k in kinds)
-            lines.append(
-                f"「{name}」은 설명서에 {joined} 관련 담보가 있어 "
-                "이번 증상·보장과 비교하기 좋습니다.")
-        else:
-            lines.append(
-                f"「{name}」은 선택한 보장 종류와 관련 담보를 "
-                "안내하는 상품요약서입니다.")
+        line = _product_why_line(p)
+        if line:
+            lines.append(line)
     return "\n".join(lines)
 
 
@@ -923,12 +985,13 @@ def _parse_brief(text: str, fallback: str) -> str:
     raw = _strip_doc_markers(raw)
     if not raw:
         return fallback
-    if re.search(r"##\s*공공데이터\s*해석", raw):
+    if re.search(r"##\s*무엇을\s*의미하나요", raw):
         return raw
+    if re.search(r"##\s*공공데이터\s*해석", raw):
+        # 구형 헤딩은 폴백(슬롯 정본)을 쓴다
+        return fallback
     if re.search(r"##\s*상황\s*종합", raw):
-        # 구형 헤딩 → 신형으로 치환해 UI split과 맞춤
-        return re.sub(
-            r"##\s*상황\s*종합", "## 공공데이터 해석", raw, count=1)
+        return fallback
     why_m = re.search(r"##\s*맞는 이유\s*(.*?)(?=##\s*알아둘 점|$)", raw, re.S)
     if why_m and why_m.group(1).strip():
         return why_m.group(1).strip()
@@ -969,26 +1032,24 @@ def _public_ref_fact_lines(
     kb = load_kb()
     specs = kb.get("symptoms") or {}
     for h in rules.symptoms:
-        for cond in ref_conditions_of(specs.get(h.code)):
+        spec = specs.get(h.code) or {}
+        for cond in ref_conditions_of(spec):
             src = cond.get("source") or ""
             lines.append(
                 f"- 증상 {h.label} → 참고 상병명 {cond['name']}"
                 + (f", 출처: {src}" if src else "")
                 + f" [내부매칭코드 {_format_kcd(cond['kcd'])} — 브리프에 쓰지 말 것]"
             )
-        overview = portal_overview_of(specs.get(h.code))
+        plain = str(spec.get("brief_plain") or "").strip()
+        if plain:
+            lines.append(f"- brief_plain ({h.label}): {plain}")
+        overview = portal_overview_of(spec)
         if overview:
             first = (overview["text"] or "").split(".")[0].strip()
             if first:
                 lines.append(
                     f"- overview_hint ({h.label}): {first}."
                 )
-    for a in rules.areas:
-        src = a.source or ""
-        lines.append(
-            f"- 가능 영역: {a.label}"
-            + (f" (출처: {src})" if src else "")
-        )
     if symptom_clusters:
         lines.append("[증상 묶음 참고 — 확진·전조·유병률 금지]")
         for cl in symptom_clusters:

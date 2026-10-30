@@ -33,8 +33,23 @@ def citations_sse_payload(chunks: list[ScoredChunk]) -> list[dict]:
     return [c.model_dump() for c in citations_from_chunks(chunks)]
 
 
+def _page_for_source(page_ref) -> int | str | None:
+    """page_ref → UI용 단일 쪽수(리스트면 첫 값)."""
+    if page_ref is None or page_ref == "":
+        return None
+    if isinstance(page_ref, list):
+        if not page_ref:
+            return None
+        return _page_for_source(page_ref[0])
+    try:
+        return int(page_ref)
+    except (TypeError, ValueError):
+        s = str(page_ref).strip()
+        return s or None
+
+
 def sources_sse_payload(chunks: list[ScoredChunk]) -> list[dict]:
-    """컨텍스트 순서(1-based n) → document_id. [문서 N] 링크용."""
+    """컨텍스트 순서(1-based n) → document_id·page. [문서 N]→쪽수 표시용."""
     out: list[dict] = []
     for i, sc in enumerate(chunks or [], start=1):
         meta = sc.chunk.meta
@@ -42,5 +57,6 @@ def sources_sse_payload(chunks: list[ScoredChunk]) -> list[dict]:
             "n": i,
             "document_id": str(getattr(meta, "document_id", "") or ""),
             "source_document": str(getattr(meta, "source_document", "") or ""),
+            "page": _page_for_source(getattr(meta, "page_ref", None)),
         })
     return out

@@ -183,9 +183,15 @@ class HiraStats:
         note = str(data.get("note") or "").strip()
         if live is None and not note:
             note = "저장본. 시연용 참고 규모이며 실시간 공식 수치가 아님."
+        # KB 큐레이션 한글명이 있으면 캐시/라이브 표기보다 우선한다.
+        disp = str(cond.get("name") or "").strip()
+        if disp and disp != str(cond.get("kcd") or "").strip():
+            name = disp
+        else:
+            name = data.get("name") or cond.get("name")
         return {
             "kcd": cond["kcd"],
-            "name": data.get("name") or cond["name"],
+            "name": name,
             "inpatient_share": share_f,
             "age_sex_count": age_count,
             "total_count": total_i,

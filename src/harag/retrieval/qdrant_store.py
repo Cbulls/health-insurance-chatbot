@@ -458,10 +458,24 @@ class QdrantVectorStore:
     def retrieve(self, query: str, auth: AuthContext, k: int = 10,
                  document_id: str | None = None,
                  document_ids: list[str] | None = None) -> list[ScoredChunk]:
-        if self._query_task:
-            dense = self._embed.encode([query], task=self._query_task)[0]
-        else:
-            dense = self._embed.encode([query])[0]
+        from harag.embedding.api_embedder import (
+            EmbeddingRateLimitError, is_embedding_failure,
+        )
+
+        dense = None
+        embed_err: BaseException | None = None
+        try:
+            if self._query_task:
+                dense = self._embed.encode([query], task=self._query_task)[0]
+            else:
+                dense = self._embed.encode([query])[0]
+        except Exception as exc:  # noqa: BLE001
+            if not is_embedding_failure(exc):
+                raise
+            embed_err = exc
+            logger.warning(
+                "retrieve dense encode failed — trying sparse-only: %s", exc)
+
         must = [models.FieldCondition(
             key="acl_tags", match=models.MatchAny(any=list(auth.acl_tags)))]
         ids: list[str] = []
@@ -487,7 +501,28 @@ class QdrantVectorStore:
         payload_sel = self._with_payload_selector()
 
         with self._lock:
-            if self._hybrid:
+            if dense is None:
+                # Jina 잔액 등 dense 불가 → hybrid sparse만으로 복구
+                if not self._hybrid:
+                    raise EmbeddingRateLimitError(
+                        str(embed_err or "embedding unavailable")
+                    ) from embed_err
+                sparse = self._query_sparse(query)
+                if not sparse.indices:
+                    raise EmbeddingRateLimitError(
+                        str(embed_err or "embedding unavailable")
+                    ) from embed_err
+                logger.info(
+                    "retrieve sparse-only fallback (embedding unavailable)")
+                res = self.client.query_points(
+                    collection_name=self.coll,
+                    query=sparse,
+                    using="sparse",
+                    query_filter=flt,
+                    limit=k,
+                    with_payload=payload_sel,
+                ).points
+            elif self._hybrid:
                 sparse = self._query_sparse(query)
                 if sparse.indices:
                     res = self.client.query_points(

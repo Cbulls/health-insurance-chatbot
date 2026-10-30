@@ -27,6 +27,9 @@ _KCD_PAREN = re.compile(r"\(([A-Z]\d{2}(?:\.\d+)?)\)")
 _FILLER_REF = re.compile(
     r"(이 안내는 참고용 안내입니다\.?|이 내용은 참고용 안내입니다\.?"
     r"|참고용 안내입니다\.?)")
+# 빈 연결 문장(실무 논리 필러) 제거
+_EMPTY_LINK = re.compile(
+    r"[^.。\n]*보험\s*실무\s*논리로\s*연결[^.。\n]*[.。]?")
 
 
 def known_coverage_labels(kb: dict | None = None) -> list[str]:
@@ -83,6 +86,9 @@ def guard_text(text: str, allowed_coverage_labels: list[str],
     if _FILLER_REF.search(out):
         flags.append("filler_ref_stripped")
         out = _FILLER_REF.sub("", out)
+    if _EMPTY_LINK.search(out):
+        flags.append("empty_link_stripped")
+        out = _EMPTY_LINK.sub("", out)
     out = re.sub(r"[ \t]{2,}", " ", out)
     # 문장 부호 뒤 공백은 넣되, 소수·코드(R00.2, 0.04)는 깨지 않는다.
     out = re.sub(r"([.，。])(?=[^\d\n]|$)", r"\1 ", out)

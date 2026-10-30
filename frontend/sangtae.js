@@ -556,8 +556,6 @@ function formatCount(n) {
 
 function publicEvidenceHtml(data) {
   const symptoms = (data.profile && data.profile.symptoms) || [];
-  const areas = data.areas || [];
-  const stats = data.ref_stats || [];
   const kcdRows = [];
   const seen = new Set();
   const overviewRows = [];
@@ -608,63 +606,12 @@ function publicEvidenceHtml(data) {
       ).join("") +
       "</div>"
     : "";
-  const areaHtml = areas.length
-    ? '<div class="area-list">' +
-      areas.map((a) =>
-        `<div class="area-item">` +
-        `<strong>가능 영역: ${escapeHtml(a.label || "")}</strong>` +
-        (a.source
-          ? `<div class="src">출처: ${escapeHtml(a.source)}</div>`
-          : "") +
-        `</div>`
-      ).join("") +
-      "</div>"
-    : "";
-  const profile = data.profile || {};
-  const ageSexHint = [profile.age_label, profile.sex_label]
-    .filter(Boolean).join(" · ");
-  const statsHtml = stats.length
-    ? stats.map((st) => {
-        const total = formatCount(st.total_count);
-        const ageN = formatCount(st.age_sex_count);
-        const share = st.inpatient_share != null
-          ? Math.round(Number(st.inpatient_share) * 100) + "%"
-          : "";
-        const meta = [
-          total ? `청구 통계상 총 ${total}건` : "",
-          ageN
-            ? `선택 연령·성별 ${ageN}건` +
-              (ageSexHint ? ` (${escapeHtml(ageSexHint)})` : "")
-            : "",
-          share ? `입원 비중 ${share}` : "",
-          st.coverage_link
-            ? `연결 보장 유형: ${escapeHtml(st.coverage_link)}`
-            : "",
-        ].filter(Boolean).join(" · ");
-        const note = st.cached
-          ? `<p class="stat-meta">${escapeHtml(st.note || "저장본. 시연용 참고 규모이며 실시간 공식 수치가 아님.")}</p>`
-          : "";
-        return (
-          `<div class="stat-card">` +
-          `<strong>${escapeHtml(st.name || "")} (${escapeHtml(st.kcd || "")})</strong>` +
-          (meta ? `<p class="stat-meta">${meta}</p>` : "") +
-          (st.source
-            ? `<p class="stat-meta">출처: ${escapeHtml(st.source)}</p>`
-            : "") +
-          note +
-          `</div>`
-        );
-      }).join("")
-    : "<p class='muted'>심평원 참고 통계를 불러오지 못했습니다. 연령·성별을 고르면 규모를 더 구체화할 수 있습니다.</p>";
   return (
     '<section class="evidence-block" aria-label="공공의료 참고">' +
     '<h2 class="evidence-title">참고: 공공·상병 연결</h2>' +
     "<p class='muted'>진단·유병률이 아닙니다. 선택한 불편과 공개 참고 상병·청구 패턴을 연결한 결과입니다.</p>" +
     kcdHtml +
     overviewHtml +
-    areaHtml +
-    '<h3 class="evidence-sub">심평원 청구 규모 (참고)</h3>' +
-    statsHtml +
     "</section>"
   );
 }
@@ -928,7 +875,10 @@ function splitBriefSections(text) {
       products.push(line);
       continue;
     }
-    if (/^##\s*공공데이터\s*해석/.test(h) ||
+    if (/^##\s*무엇을\s*의미하나요/.test(h) ||
+        /^##\s*진료[·・]?\s*생활에서\s*보면\s*좋은\s*점/.test(h) ||
+        /^##\s*보험에서는\s*보통\s*이렇게\s*봅니다/.test(h) ||
+        /^##\s*공공데이터\s*해석/.test(h) ||
         /^##\s*상황\s*종합/.test(h) ||
         /^##\s*주의[·・]?\s*참고/.test(h)) {
       mode = "medical";
@@ -1075,6 +1025,7 @@ function renderGuidance(data) {
         "<p class='muted'>확진·진단이 아닙니다. 건수·입원 비중은 아래 공공 카드를 보세요.</p>" +
         "<div class='why-block explain prose'>" + medicalHtml + "</div>"
       : "") +
+
     clusterEvidenceHtml(data) +
     publicEvidenceHtml(data) +
     productCompareHtml(data.products, productWhyHtml) +
@@ -1740,8 +1691,11 @@ function formatAnswerHtml(text, sourceByN) {
 }
 
 function docRefMarkHtml(n, sourceByN) {
-  const label = "[문서 " + n + "]";
   const src = sourceByN && sourceByN[String(n)];
+  const page = src && src.page;
+  const label = (page != null && page !== "")
+    ? "[" + page + "쪽 참고]"
+    : "[설명서 참고]";
   const id = src && src.document_id;
   if (id) {
     return '<a class="ref-mark" href="' + escapeHtml(brochurePdfHref(id)) +
@@ -1756,7 +1710,7 @@ function inlineAnswerHtml(s, sourceByN) {
     .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
     .replace(/\[\s*문서\s*((?:\d+\s*,?\s*)+)\]/g, (_, nums) => {
       const parts = String(nums).match(/\d+/g) || [];
-      if (!parts.length) return '<span class="ref-mark">[문서]</span>';
+      if (!parts.length) return '<span class="ref-mark">[설명서 참고]</span>';
       return parts.map((n) => docRefMarkHtml(n, sourceByN)).join(", ");
     });
 }
