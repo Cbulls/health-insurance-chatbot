@@ -813,6 +813,356 @@
         "text": "수면 중 땀(식은땀)은 실내 온도·스트레스·감염·내분비 상태 등 여러 가능 요인과 관련될 수 있습니다. 발열·체중 감소 등이 동반되면 원인을 살펴볼 수 있습니다.",
         "source": "질병관리청 국가건강정보포털 — 발한(개요)"
       }
+    },
+    "appetite_loss": {
+      "label": "식욕 감퇴",
+      "type": "hidden",
+      "body_area": "general",
+      "aliases": ["식욕 감퇴", "입맛이 없", "식욕이 없", "밥맛이 없", "잘 안 먹"],
+      "areas": [
+        {
+          "label": "전신·소화 관련 가능 영역",
+          "source": "질병관리청 국가건강정보포털 — 식욕부진·피로(개요) 기반 큐레이션",
+          "confidence": 0.55
+        }
+      ],
+      "coverages": ["outpatient", "tests"],
+      "occupation_boost": {},
+      "concern_boost": {
+        "outpatient": ["outpatient"],
+        "tests": ["tests"]
+      },
+      "ref_conditions": [
+        {
+          "kcd": "R63.0",
+          "name": "식욕부진",
+          "source": "질병관리청 국가건강정보포털 — 식욕부진(개요) 기반 큐레이션"
+        }
+      ],
+      "brief_plain": "식욕 감퇴는 식사량이 줄거나 입맛이 떨어지는 불편으로, 소화·전신 상태·스트레스 등 여러 맥락에서 함께 살펴볼 수 있다고 안내됩니다.",
+      "portal_overview": {
+        "text": "식욕이 떨어지는 불편은 일시적인 경우가 많으나, 지속되거나 체중 감소·구토·심한 피로와 함께 있으면 원인을 살펴보는 것이 좋습니다. 특정 질환의 확진이 아닙니다.",
+        "source": "질병관리청 국가건강정보포털 — 식욕부진·피로(개요) 기반 큐레이션"
+      }
+    },
+    "urine_color": {
+      "label": "소변 색깔 변화",
+      "type": "hidden",
+      "body_area": "abdomen",
+      "aliases": ["소변 색깔", "소변이 진해", "소변이 노랗", "붉은 소변", "소변색"],
+      "areas": [
+        {
+          "label": "배뇨·신장·간담도 관련 가능 영역",
+          "source": "질병관리청 국가건강정보포털 — 혈뇨·황달(개요) 기반 큐레이션",
+          "confidence": 0.5
+        }
+      ],
+      "coverages": ["outpatient", "tests"],
+      "occupation_boost": {},
+      "concern_boost": {
+        "outpatient": ["outpatient"],
+        "tests": ["tests"]
+      },
+      "ref_conditions": [
+        {
+          "kcd": "R82",
+          "name": "소변의 이상소견",
+          "source": "질병관리청 국가건강정보포털 — 배뇨 이상(개요) 기반 큐레이션"
+        }
+      ],
+      "brief_plain": "소변 색깔 변화는 수분 섭취·약물·담즙·혈액 등 여러 가능 요인과 관련될 수 있어, 보장 탐색 때 놓치기 쉬운 불편으로 모았습니다.",
+      "portal_overview": {
+        "text": "소변색이 평소와 다르게 진하거나 붉·갈·노랗게 보일 수 있습니다. 수분·음식·약물이 흔한 원인이지만, 통증·발열·황달(눈·피부 노란빛)이 동반되면 진료를 권합니다. 진단이 아닙니다.",
+        "source": "질병관리청 국가건강정보포털 — 배뇨 이상·황달(개요) 기반 큐레이션"
+      }
+    },
+    "stool_color": {
+      "label": "대변 색깔 변화",
+      "type": "hidden",
+      "body_area": "abdomen",
+      "aliases": ["대변 색깔", "검은 변", "흰 변", "혈변", "변 색깔", "회색 변"],
+      "areas": [
+        {
+          "label": "소화기·담도 관련 가능 영역",
+          "source": "질병관리청 국가건강정보포털 — 혈변·황달(개요) 기반 큐레이션",
+          "confidence": 0.52
+        }
+      ],
+      "coverages": ["outpatient", "tests", "inpatient"],
+      "occupation_boost": {},
+      "concern_boost": {
+        "outpatient": ["outpatient"],
+        "tests": ["tests"],
+        "inpatient": ["inpatient"]
+      },
+      "ref_conditions": [
+        {
+          "kcd": "R19.5",
+          "name": "분변이상",
+          "source": "질병관리청 국가건강정보포털 — 배변 이상(개요) 기반 큐레이션"
+        }
+      ],
+      "brief_plain": "대변 색깔 변화는 음식·약물·출혈·담즙 흐름 등 여러 맥락에서 나타날 수 있어, 가볍게 넘기기 쉬운 불편으로 모아 두었습니다.",
+      "portal_overview": {
+        "text": "대변색이 검거나(타르변)·붉거나·회색·옅은색으로 바뀌는 경우가 있습니다. 음식·약물이 원인일 수 있으나, 지속되거나 어지러움·통증·황달이 있으면 진료를 권합니다. 확진이 아닙니다.",
+        "source": "질병관리청 국가건강정보포털 — 배변 이상(개요) 기반 큐레이션"
+      }
+    },
+    "weight_change": {
+      "label": "체중 변화",
+      "type": "hidden",
+      "body_area": "general",
+      "aliases": ["체중 변화", "살이 빠", "체중 감소", "체중 증가", "급격히 살"],
+      "areas": [
+        {
+          "label": "전신·대사 관련 가능 영역",
+          "source": "질병관리청 국가건강정보포털 — 체중 감소(개요) 기반 큐레이션",
+          "confidence": 0.55
+        }
+      ],
+      "coverages": ["outpatient", "tests"],
+      "occupation_boost": {},
+      "concern_boost": {
+        "outpatient": ["outpatient"],
+        "tests": ["tests"]
+      },
+      "ref_conditions": [
+        {
+          "kcd": "R63.4",
+          "name": "이상체중감소",
+          "source": "질병관리청 국가건강정보포털 — 체중 감소(개요) 기반 큐레이션"
+        }
+      ],
+      "brief_plain": "짧은 기간의 체중 감소·증가는 식사·활동·전신 상태 등과 관련될 수 있어 보험 안내 때 함께 물을 수 있는 불편입니다.",
+      "portal_overview": {
+        "text": "의도하지 않은 체중 변화는 식사량·수분·기저 상태 등 여러 요인과 관련될 수 있습니다. 급격한 감소와 식욕 저하·피로가 겹치면 원인을 살펴보는 것이 좋습니다. 진단이 아닙니다.",
+        "source": "질병관리청 국가건강정보포털 — 체중 감소(개요) 기반 큐레이션"
+      }
+    },
+    "nausea": {
+      "label": "구역·메스꺼움",
+      "type": "hidden",
+      "body_area": "abdomen",
+      "aliases": ["구역", "메스꺼", "울렁", "토할 것 같", "오심"],
+      "areas": [
+        {
+          "label": "소화기 관련 가능 영역",
+          "source": "질병관리청 국가건강정보포털 — 오심·구토(개요) 기반 큐레이션",
+          "confidence": 0.58
+        }
+      ],
+      "coverages": ["outpatient"],
+      "occupation_boost": {},
+      "concern_boost": {
+        "outpatient": ["outpatient"],
+        "inpatient": ["inpatient"]
+      },
+      "ref_conditions": [
+        {
+          "kcd": "R11",
+          "name": "오심 및 구토",
+          "source": "질병관리청 국가건강정보포털 — 오심·구토(개요) 기반 큐레이션"
+        }
+      ],
+      "brief_plain": "구역·메스꺼움은 소화·전정·약물 등 여러 가능 요인과 관련될 수 있는 흔한 불편입니다.",
+      "portal_overview": {
+        "text": "메스꺼움은 위장관·멀미·약물·전신 상태 등에서 나타날 수 있습니다. 지속 구토·탈수·심한 복통이 있으면 진료를 권합니다. 특정 질환 확진이 아닙니다.",
+        "source": "질병관리청 국가건강정보포털 — 오심·구토(개요) 기반 큐레이션"
+      }
+    },
+    "abdominal_pain": {
+      "label": "복통",
+      "type": "hidden",
+      "body_area": "abdomen",
+      "aliases": ["복통", "배가 아", "속이 아", "아랫배", "명치가 아"],
+      "areas": [
+        {
+          "label": "소화기 관련 가능 영역",
+          "source": "질병관리청 국가건강정보포털 — 복통(개요) 기반 큐레이션",
+          "confidence": 0.6
+        }
+      ],
+      "coverages": ["outpatient", "inpatient"],
+      "occupation_boost": {},
+      "concern_boost": {
+        "outpatient": ["outpatient"],
+        "inpatient": ["inpatient"],
+        "tests": ["tests"]
+      },
+      "ref_conditions": [
+        {
+          "kcd": "R10",
+          "name": "복부 및 골반 통증",
+          "source": "질병관리청 국가건강정보포털 — 복통(개요) 기반 큐레이션"
+        }
+      ],
+      "brief_plain": "복통은 위치·양상에 따라 여러 소화·비뇨 맥락을 참고할 수 있어, 놓치기 쉬운 불편 묶음에 포함했습니다.",
+      "portal_overview": {
+        "text": "배의 통증은 소화불량부터 급성 질환까지 폭이 넓습니다. 갑자기 심해지거나 발열·구토·혈변이 동반되면 진료를 권합니다. 이 안내는 진단이 아닙니다.",
+        "source": "질병관리청 국가건강정보포털 — 복통(개요) 기반 큐레이션"
+      }
+    },
+    "breath_short": {
+      "label": "숨이 참",
+      "type": "hidden",
+      "body_area": "chest",
+      "aliases": ["숨이 참", "숨차", "호흡곤란", "숨이 가쁘", "숨쉬기 힘"],
+      "areas": [
+        {
+          "label": "호흡·순환 관련 가능 영역",
+          "source": "질병관리청 국가건강정보포털 — 호흡곤란(개요) 기반 큐레이션",
+          "confidence": 0.58
+        }
+      ],
+      "coverages": ["outpatient", "inpatient"],
+      "occupation_boost": {
+        "field": ["injury", "outpatient"]
+      },
+      "concern_boost": {
+        "outpatient": ["outpatient"],
+        "inpatient": ["inpatient"],
+        "tests": ["tests"]
+      },
+      "ref_conditions": [
+        {
+          "kcd": "R06.0",
+          "name": "호흡곤란",
+          "source": "질병관리청 국가건강정보포털 — 호흡곤란(개요) 기반 큐레이션"
+        }
+      ],
+      "brief_plain": "숨이 차는 느낌은 호흡기·순환·불안 등 여러 맥락에서 나타날 수 있어 보장 탐색 때 함께 물을 수 있습니다.",
+      "portal_overview": {
+        "text": "호흡곤란은 폐·심장·빈혈·불안 등 여러 가능 요인과 관련될 수 있습니다. 갑자기 심하거나 가슴 통증·실신·입술 청색이 있으면 응급 진료를 받으세요. 확진이 아닙니다.",
+        "source": "질병관리청 국가건강정보포털 — 호흡곤란(개요) 기반 큐레이션"
+      }
+    },
+    "sleep_trouble": {
+      "label": "잠들기 어려움",
+      "type": "hidden",
+      "body_area": "general",
+      "aliases": ["잠들기 어려", "불면증", "잠을 못", "수면 장애", "자주 깸"],
+      "areas": [
+        {
+          "label": "수면·전신 관련 가능 영역",
+          "source": "질병관리청 국가건강정보포털 — 불면증(개요) 기반 큐레이션",
+          "confidence": 0.52
+        }
+      ],
+      "coverages": ["outpatient"],
+      "occupation_boost": {
+        "office": ["outpatient"],
+        "care_health": ["outpatient"]
+      },
+      "concern_boost": {
+        "outpatient": ["outpatient"]
+      },
+      "ref_conditions": [
+        {
+          "kcd": "G47.0",
+          "name": "불면증",
+          "source": "질병관리청 국가건강정보포털 — 불면증(개요) 기반 큐레이션"
+        }
+      ],
+      "brief_plain": "잠들기 어렵거나 자주 깨는 불편은 스트레스·생활리듬·동반 증상과 함께 살펴볼 수 있습니다.",
+      "portal_overview": {
+        "text": "잠들기 어려움은 생활습관·스트레스·통증·호흡 문제 등 여러 요인과 관련될 수 있습니다. 낮 기능이 크게 떨어지거나 코골이·무호흡이 의심되면 상담을 권합니다. 진단이 아닙니다.",
+        "source": "질병관리청 국가건강정보포털 — 불면증(개요) 기반 큐레이션"
+      }
+    }
+  },
+  "areas_catalog": {
+    "musculoskeletal_motion": {
+      "title": "근육·움직임 관련",
+      "clinical_review": "draft",
+      "symptom_codes": ["leg_cramp", "fatigue", "neck_pain"],
+      "kcds": ["R25", "M54"],
+      "candidate_groups": [
+        {
+          "label": "근육 과사용·수분·전해질 균형과 관련된 참고 질환군",
+          "source": "질병관리청 국가건강정보포털 — 근육경련(개요)"
+        },
+        {
+          "label": "허리·하지 신경 부담과 함께 살펴볼 수 있는 참고 질환군",
+          "source": "질병관리청 국가건강정보포털 — 근육경련(개요)"
+        },
+        {
+          "label": "목·경부 부담과 함께 살펴볼 수 있는 참고 질환군",
+          "source": "질병관리청 국가건강정보포털 — 경추통(개요)"
+        }
+      ],
+      "limits": [
+        "진단이 아닙니다",
+        "집단 청구 경향이며 개인의 중증도가 아닙니다",
+        "임상 후보 문구는 초안(draft)이며 의료 검수가 필요합니다"
+      ]
+    },
+    "head_neuro": {
+      "title": "머리·신경 관련",
+      "clinical_review": "draft",
+      "symptom_codes": ["headache", "fatigue", "sleep_trouble"],
+      "kcds": ["R51"],
+      "candidate_groups": [
+        {
+          "label": "두통 질환군(긴장성 두통·편두통 등) 참고",
+          "source": "질병관리청 국가건강정보포털 — 두통(개요)"
+        }
+      ],
+      "limits": [
+        "진단이 아닙니다",
+        "집단 청구 경향이며 개인의 중증도가 아닙니다",
+        "임상 후보 문구는 초안(draft)이며 의료 검수가 필요합니다"
+      ]
+    },
+    "balance_metabolic": {
+      "title": "몸의 균형·대사 관련",
+      "clinical_review": "draft",
+      "symptom_codes": ["leg_cramp", "fatigue", "appetite_loss", "weight_change", "sleep_trouble", "thirst"],
+      "kcds": ["R53", "R63"],
+      "candidate_groups": [
+        {
+          "label": "피로·회복·체중·식욕과 관련해 공개 자료에서 함께 살펴보라고 안내되는 참고 영역",
+          "source": "질병관리청 국가건강정보포털 — 피로·식욕부진(개요) 기반 큐레이션"
+        }
+      ],
+      "limits": [
+        "진단이 아닙니다",
+        "집단 청구 경향이며 개인의 중증도가 아닙니다",
+        "임상 후보 문구는 초안(draft)이며 의료 검수가 필요합니다"
+      ]
+    },
+    "gi_urine_stool": {
+      "title": "소화·배뇨·배변 관련",
+      "clinical_review": "draft",
+      "symptom_codes": ["urine_color", "stool_color", "appetite_loss", "nausea", "abdominal_pain", "indigestion"],
+      "kcds": ["R10", "R11", "R63"],
+      "candidate_groups": [
+        {
+          "label": "복통·오심·식욕·소변·대변 색 변화와 함께 살펴볼 수 있는 소화·배설 참고 질환군",
+          "source": "질병관리청 국가건강정보포털 — 복통·오심·배변(개요) 기반 큐레이션"
+        }
+      ],
+      "limits": [
+        "진단이 아닙니다",
+        "집단 청구 경향이며 개인의 중증도가 아닙니다",
+        "임상 후보 문구는 초안(draft)이며 의료 검수가 필요합니다"
+      ]
+    },
+    "cardio_resp": {
+      "title": "호흡·순환 관련",
+      "clinical_review": "draft",
+      "symptom_codes": ["breath_short", "palpitation", "cough", "fatigue"],
+      "kcds": ["R06", "R00"],
+      "candidate_groups": [
+        {
+          "label": "호흡곤란·두근거림·기침과 함께 살펴볼 수 있는 호흡·순환 참고 질환군",
+          "source": "질병관리청 국가건강정보포털 — 호흡곤란·두근거림(개요) 기반 큐레이션"
+        }
+      ],
+      "limits": [
+        "진단이 아닙니다",
+        "집단 청구 경향이며 개인의 중증도가 아닙니다",
+        "임상 후보 문구는 초안(draft)이며 의료 검수가 필요합니다"
+      ]
     }
   },
   "symptom_clusters": {

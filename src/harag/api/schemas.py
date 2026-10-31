@@ -195,6 +195,115 @@ class SymptomCluster(BaseModel):
     occupation_note: str = ""
 
 
+class CandidateGroup(BaseModel):
+    label: str
+    source: str = ""
+
+
+class CommonnessBlock(BaseModel):
+    label: str = "찾지 못했어요"
+    rank: int | None = None
+    n: int | None = None
+    detail: str = ""
+    source: str = ""
+    missing: bool = True
+    reason: str = ""
+
+
+class SeverityBlock(BaseModel):
+    label: str = "찾지 못했어요"
+    inpatient_share: float | None = None
+    avg_visit_days: float | None = None
+    source: str = ""
+    note: str = ""
+    missing: bool = True
+    reason: str = ""
+
+
+class OccupationFactorBlock(BaseModel):
+    text: str = "찾지 못했어요"
+    source: str | None = None
+    missing: bool = True
+    claims_not_incidence: bool = False
+    reason: str = ""
+
+
+class KosisContextBlock(BaseModel):
+    missing: bool = True
+    label: str = "찾지 못했어요"
+    detail: str = ""
+    source: str = ""
+    year: str | None = None
+    scheme: str = ""
+    scheme_label: str = ""
+    note: str = ""
+    reason: str = ""
+    surgeries: list[dict] = Field(default_factory=list)
+    inpatient: dict | None = None
+    high_share_pct: float | None = None
+    inpatient_share_pct: float | None = None
+    disease: str | None = None
+    match: str = ""
+    tbl_id: str = ""
+
+
+class PublicStatsItem(BaseModel):
+    key: str = ""
+    title: str = ""
+    label: str = ""
+    detail: str = ""
+    source: str = ""
+    year: str | None = None
+    missing: bool = True
+    reason: str = ""
+    note: str = ""
+
+
+class PublicStatsPanel(BaseModel):
+    title: str = "공공 통계 참고"
+    items: list[PublicStatsItem] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+    summary_lines: list[str] = Field(default_factory=list)
+
+
+class RecommendationRationale(BaseModel):
+    principle: str = "진단 아님 · 상품 권유 아님 · 가능 영역/보장 유형 연결"
+    steps: list[str] = Field(default_factory=list)
+    missing_notes: list[str] = Field(default_factory=list)
+
+
+class AreaCard(BaseModel):
+    id: str
+    title: str = ""
+    clinical_review: str = ""
+    linked_symptoms: list[str] = Field(default_factory=list)
+    candidate_groups: list[CandidateGroup] = Field(default_factory=list)
+    kcds: list[str] = Field(default_factory=list)
+    commonness: CommonnessBlock = Field(default_factory=CommonnessBlock)
+    severity: SeverityBlock = Field(default_factory=SeverityBlock)
+    occupation_factor: OccupationFactorBlock = Field(
+        default_factory=OccupationFactorBlock)
+    care_context: KosisContextBlock | None = None
+    surgery_context: KosisContextBlock | None = None
+    disease_298: KosisContextBlock | None = None
+    limits: list[str] = Field(default_factory=list)
+
+
+class InsuranceBridge(BaseModel):
+    paragraphs: list[str] = Field(default_factory=list)
+    occupation_label: str = ""
+    concern_labels: list[str] = Field(default_factory=list)
+    coverage_labels: list[str] = Field(default_factory=list)
+    kosis_care: KosisContextBlock = Field(default_factory=KosisContextBlock)
+    kosis_surgery_nhi: KosisContextBlock = Field(
+        default_factory=KosisContextBlock)
+    kosis_surgery_medical_aid: KosisContextBlock = Field(
+        default_factory=KosisContextBlock)
+    kosis_cost_bracket: KosisContextBlock = Field(
+        default_factory=KosisContextBlock)
+    kosis_source: str = ""
+
+
 class ProductCard(BaseModel):
     document_id: str = ""
     title: str
@@ -220,6 +329,12 @@ class GuidanceResponse(BaseModel):
     ref_stats: list[RefStat] = Field(default_factory=list)
     symptom_clusters: list[SymptomCluster] = Field(default_factory=list)
     cluster_stats: list[RefStat] = Field(default_factory=list)
+    area_cards: list[AreaCard] = Field(default_factory=list)
+    insurance_bridge: InsuranceBridge = Field(default_factory=InsuranceBridge)
+    kosis: dict = Field(default_factory=dict)
+    public_stats: PublicStatsPanel = Field(default_factory=PublicStatsPanel)
+    recommendation_rationale: RecommendationRationale = Field(
+        default_factory=RecommendationRationale)
     explanation: str = ""
     explanation_why: str = ""
     explanation_caution: str = ""

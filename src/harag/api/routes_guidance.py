@@ -7,8 +7,9 @@ from harag.api.middleware import current_trace_id
 from harag.api.ratelimit import enforce_rate_limit
 from harag.api.schemas import (
     AssessRequest, AssessResponse, GuidanceRequest, GuidanceResponse,
-    AreaItem, CoverageItem, ProductCard, RefStat, SymptomCluster,
-    SymptomItem, PurgeRequest, PurgeResponse,
+    AreaCard, AreaItem, CoverageItem, InsuranceBridge, ProductCard, RefStat,
+    PublicStatsPanel, RecommendationRationale,
+    SymptomCluster, SymptomItem, PurgeRequest, PurgeResponse,
 )
 from harag.contracts.boundaries import AuthContext
 
@@ -52,6 +53,7 @@ async def guidance(
         req.text, occupation=req.occupation, concern=req.concern,
         concerns=req.concerns or None, age_band=req.age_band, sex=req.sex,
         symptom_codes=req.symptoms or None, auth=auth)
+    bridge = result.insurance_bridge or {}
     return GuidanceResponse(
         profile=result.profile,
         areas=[AreaItem(**a) for a in result.areas],
@@ -61,6 +63,14 @@ async def guidance(
         symptom_clusters=[
             SymptomCluster(**c) for c in result.symptom_clusters],
         cluster_stats=[RefStat(**s) for s in result.cluster_stats],
+        area_cards=[AreaCard(**c) for c in (result.area_cards or [])],
+        insurance_bridge=InsuranceBridge(**bridge) if bridge else InsuranceBridge(),
+        kosis=result.kosis or {},
+        public_stats=PublicStatsPanel(**(result.public_stats or {}))
+        if result.public_stats else PublicStatsPanel(),
+        recommendation_rationale=RecommendationRationale(
+            **(result.recommendation_rationale or {})
+        ) if result.recommendation_rationale else RecommendationRationale(),
         explanation=result.explanation,
         explanation_why=result.explanation_why,
         explanation_caution=result.explanation_caution,

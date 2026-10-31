@@ -198,6 +198,14 @@ const SYMPTOMS = {
   swelling: { label: "붓기", type: "hidden", aliases: ["붓기", "부었", "부종", "발이 부"], ref: { kcd: "R60", name: "부종", source: "질병관리청 국가건강정보포털 — 부종(개요)" } },
   palpitation: { label: "가슴 두근거림", type: "hidden", aliases: ["두근거림", "심장이 빨리", "가슴이 두근", "빈맥"], ref: { kcd: "R00.2", name: "심계항진", source: "질병관리청 국가건강정보포털 — 두근거림(개요)" } },
   night_sweat: { label: "잘 때 땀", type: "hidden", aliases: ["잘 때 땀", "밤에 땀", "식은땀", "도한"], ref: { kcd: "R61", name: "다한증", source: "질병관리청 국가건강정보포털 — 발한(개요)" } },
+  appetite_loss: { label: "식욕 감퇴", type: "hidden", aliases: ["식욕 감퇴", "입맛이 없", "식욕이 없", "밥맛이 없"], ref: { kcd: "R63.0", name: "식욕부진", source: "질병관리청 국가건강정보포털 — 식욕부진(개요) 기반 큐레이션" } },
+  urine_color: { label: "소변 색깔 변화", type: "hidden", aliases: ["소변 색깔", "소변이 진해", "붉은 소변", "소변색"], ref: { kcd: "R82", name: "소변의 이상소견", source: "질병관리청 국가건강정보포털 — 배뇨 이상(개요) 기반 큐레이션" } },
+  stool_color: { label: "대변 색깔 변화", type: "hidden", aliases: ["대변 색깔", "검은 변", "혈변", "변 색깔"], ref: { kcd: "R19.5", name: "분변이상", source: "질병관리청 국가건강정보포털 — 배변 이상(개요) 기반 큐레이션" } },
+  weight_change: { label: "체중 변화", type: "hidden", aliases: ["체중 변화", "살이 빠", "체중 감소", "체중 증가"], ref: { kcd: "R63.4", name: "이상체중감소", source: "질병관리청 국가건강정보포털 — 체중 감소(개요) 기반 큐레이션" } },
+  nausea: { label: "구역·메스꺼움", type: "hidden", aliases: ["구역", "메스꺼", "울렁", "오심"], ref: { kcd: "R11", name: "오심 및 구토", source: "질병관리청 국가건강정보포털 — 오심·구토(개요) 기반 큐레이션" } },
+  abdominal_pain: { label: "복통", type: "hidden", aliases: ["복통", "배가 아", "속이 아", "아랫배"], ref: { kcd: "R10", name: "복부 및 골반 통증", source: "질병관리청 국가건강정보포털 — 복통(개요) 기반 큐레이션" } },
+  breath_short: { label: "숨이 참", type: "hidden", aliases: ["숨이 참", "숨차", "호흡곤란", "숨이 가쁘"], ref: { kcd: "R06.0", name: "호흡곤란", source: "질병관리청 국가건강정보포털 — 호흡곤란(개요) 기반 큐레이션" } },
+  sleep_trouble: { label: "잠들기 어려움", type: "hidden", aliases: ["잠들기 어려", "불면증", "잠을 못", "수면 장애"], ref: { kcd: "G47.0", name: "불면증", source: "질병관리청 국가건강정보포털 — 불면증(개요) 기반 큐레이션" } },
 };
 const MAX_SYMPTOMS = 8;
 const selectedSymptoms = new Set();
@@ -490,8 +498,14 @@ const GROUP_INFO = {
   hidden: {
     title: "놓치기 쉬운 불편 — 분류 근거",
     body:
-      "가볍게 넘기기 쉽지만 다른 건강 상태와 함께 나타날 수 있어, 보장 탐색 때 놓치기 쉬운 불편을 모았습니다. 다리 쥐(하지 경련)는 흔한 불편이면서도 전해질·순환 등 관련 요인이 다양해(질병관리청 근육경련 개요) 이 묶음에 둡니다. 진단이 아닙니다.",
+      "가볍게 넘기기 쉽지만 다른 건강 상태와 함께 나타날 수 있어, 보장 탐색 때 놓치기 쉬운 불편을 모았습니다. 다리 쥐뿐 아니라 식욕·소변·대변 색·체중·구역·복통·숨참·수면 등 전신·소화·배설 신호도 포함합니다. 진단이 아니며, 위험 신호가 보이면 안내 문구를 확인하세요.",
     src: "출처: 질병관리청 국가건강정보포털 — 근육경련·두근거림 등 개요(큐레이션). 확진·추천이 아닙니다.",
+  },
+  areas: {
+    title: "이 조합에서 염두에 둘 영역이란?",
+    body:
+      "선택하신 불편을 바탕으로, 보험 안내에서 함께 살펴볼 수 있는 참고 영역을 카드로 보여 줍니다. 의료 진단·확진이 아닙니다. 흔함·심각도 참고는 심평원 등 집단 청구 통계의 상대적 경향이고, 직군 요인은 업종 산재 통계에 근사 연결한 참고입니다. 카드에 적힌 한계 문구를 함께 읽어 주세요.",
+    src: "근거: KB 영역 카탈로그 · 심평원 질병정보 · KOSIS 보조 통계(해당 시). 확진·상품 권유가 아닙니다.",
   },
 };
 
@@ -510,20 +524,45 @@ function closeSheet() {
   if (sheet) sheet.classList.add("hidden");
 }
 
-document.querySelectorAll("[data-group-info]").forEach((btn) => {
-  btn.addEventListener("click", () => {
-    const info = GROUP_INFO[btn.dataset.groupInfo];
-    if (!info) return;
-    openSheet(info.title, info.body, info.src);
-  });
+document.addEventListener("click", (e) => {
+  const btn = e.target && e.target.closest
+    ? e.target.closest("[data-group-info]")
+    : null;
+  if (!btn) return;
+  const info = GROUP_INFO[btn.dataset.groupInfo];
+  if (!info) return;
+  e.preventDefault();
+  openSheet(info.title, info.body, info.src);
 });
 
 function updateCareNotice() {
   const el = document.getElementById("careNotice");
   if (!el) return;
+  const notes = [];
   if (selectedSymptoms.has("palpitation")) {
+    notes.push(
+      "가슴 두근거림과 함께 심한 가슴 통증·실신·숨이 매우 가쁘면 응급 진료를 받으세요."
+    );
+  }
+  if (selectedSymptoms.has("breath_short")) {
+    notes.push(
+      "숨이 갑자기 매우 차거나 가슴 통증·입술 청색·실신이 있으면 응급 진료를 받으세요."
+    );
+  }
+  if (selectedSymptoms.has("stool_color")) {
+    notes.push(
+      "검은 타르변·혈변·회색 변과 황달·심한 복통이 동반되면 즉시 진료를 받으세요."
+    );
+  }
+  if (selectedSymptoms.has("urine_color")) {
+    notes.push(
+      "소변색 변화와 함께 발열·옆구리 통증·황달(눈·피부 노란빛)이 있으면 진료를 받으세요."
+    );
+  }
+  if (notes.length) {
     el.textContent =
-      "가슴 두근거림과 함께 심한 가슴 통증·실신·숨이 매우 가쁘면 응급 진료를 받으세요. 진단이 아닌 일반 안내입니다. (질병관리청 국가건강정보포털 — 두근거림)";
+      notes.join(" ") +
+      " 진단이 아닌 일반 안내입니다. (질병관리청 국가건강정보포털 개요 기반)";
     el.classList.remove("hidden");
   } else {
     el.textContent = "";
@@ -951,7 +990,7 @@ function factorRows(profile) {
   const p = profile || {};
   const concerns = (p.concern_labels || []).join(", ");
   return (
-    '<div class="factor-row"><span class="type-label">고려한 점</span>' +
+    '<div class="factor-row"><span class="type-label">상황</span>' +
     `<span>직업 ${orNone(p.occupation_label)}</span>` +
     `<span>걱정 ${orNone(concerns)}</span>` +
     `<span>연령 ${orNone(p.age_label)}</span>` +
@@ -960,7 +999,8 @@ function factorRows(profile) {
   );
 }
 
-function typeRows(symptoms, profile) {
+/** A. 입력 확인 — 판단 없이 메아리만. */
+function inputEchoHtml(symptoms, profile) {
   const usual = (symptoms || []).filter((s) => (s.type || "usual") !== "hidden");
   const hidden = (symptoms || []).filter((s) => s.type === "hidden");
   const chip = (s, kind) =>
@@ -971,26 +1011,267 @@ function typeRows(symptoms, profile) {
   const hiddenHtml = hidden.length
     ? hidden.map((s) => chip(s, "hidden-type")).join("")
     : `<span class="muted">해당 없음</span>`;
-  const both =
-    usual.length && hidden.length
-      ? "이번에 고르신 자주 느끼는 증상과 놓치기 쉬운 불편을 함께 반영해 보장 종류를 안내합니다."
-      : usual.length
-        ? "자주 느끼는 증상 위주로 반영해 보장 종류를 안내합니다. 놓치기 쉬운 불편도 고르시면 함께 반영됩니다."
-        : "놓치기 쉬운 불편 위주로 반영해 보장 종류를 안내합니다. 자주 느끼는 증상도 고르시면 함께 반영됩니다.";
-  const rationaleBody =
-    "증상을 자주 느끼는 불편과 놓치기 쉬운 불편으로 나눈 이유는, " +
-    "흔한 불편만 보면 놓치기 쉬운 신호를 빠뜨리고, 신호만 보면 일상 불편을 빠뜨리기 쉽기 때문입니다. " +
-    "두 유형을 같이 받아 규칙이 실손 보장 종류를 연결합니다. 진단이 아닌 참고 분류입니다.\n\n" +
-    both;
   return (
-    '<h2 class="type-head">내가 고른 불편 ' +
-    '<button type="button" class="help-q" id="typeRationaleBtn" aria-label="분류 설명" ' +
-    'data-rationale="' + escapeHtml(rationaleBody) + '">?</button></h2>' +
+    '<section class="input-echo" aria-label="내가 입력한 상태">' +
+    "<h2>내가 입력한 상태</h2>" +
+    "<p class='muted'>선택하신 내용을 그대로 확인합니다. 판단은 넣지 않습니다.</p>" +
     '<div class="type-row"><span class="type-label">자주 느끼는 증상</span>' +
     usualHtml + "</div>" +
     '<div class="type-row"><span class="type-label">놓치기 쉬운 불편</span>' +
     hiddenHtml + "</div>" +
-    factorRows(profile)
+    factorRows(profile) +
+    "</section>"
+  );
+}
+
+function _evidenceLine(title, block) {
+  const b = block || {};
+  const missing = b.missing || b.label === "찾지 못했어요";
+  const label = escapeHtml(b.label || "찾지 못했어요");
+  let body = `<strong>${escapeHtml(title)}</strong> ${label}`;
+  if (!missing && b.detail) {
+    body += ` <span class="stat-meta">(${escapeHtml(b.detail)})</span>`;
+  }
+  if (!missing && b.inpatient_share != null && Number.isFinite(Number(b.inpatient_share))) {
+    body += ` <span class="stat-meta">입원 비중 ${Math.round(Number(b.inpatient_share) * 100)}%</span>`;
+  }
+  if (missing && b.reason) {
+    body += ` <span class="stat-meta">${escapeHtml(b.reason)}</span>`;
+  }
+  if (b.source) {
+    body += `<div class="src">출처: ${escapeHtml(b.source)}</div>`;
+  }
+  if (b.note) {
+    body += `<div class="src">${escapeHtml(b.note)}</div>`;
+  }
+  return `<li class="area-evidence">${body}</li>`;
+}
+
+function areaSectionTitleHtml() {
+  return (
+    "<div class='evidence-title-row'>" +
+    "<h2 class='evidence-title'>이 조합에서 염두에 둘 영역</h2>" +
+    "<button type='button' class='info-btn' data-group-info='areas' " +
+    "aria-label='염두에 둘 영역 설명'>?</button>" +
+    "</div>"
+  );
+}
+
+/** B. 염두에 둘 영역 카드 */
+function areaCardsHtml(data) {
+  const cards = data.area_cards || [];
+  if (!cards.length) {
+    return (
+      '<section class="evidence-block area-cards-block" aria-label="염두에 둘 영역">' +
+      areaSectionTitleHtml() +
+      "<p class='muted'>지금은 연결할 참고 영역 카드가 없습니다.</p>" +
+      "</section>"
+    );
+  }
+  const items = cards.map((card, i) => {
+    const linked = (card.linked_symptoms || []).map(escapeHtml).join(", ");
+    const groups = (card.candidate_groups || [])
+      .map((g) => escapeHtml(g.label || ""))
+      .filter(Boolean)
+      .join(" · ");
+    const occ = card.occupation_factor || {};
+    const occText = escapeHtml(occ.text || "찾지 못했어요");
+    const occReason = (occ.missing && occ.reason)
+      ? ` <span class="stat-meta">${escapeHtml(occ.reason)}</span>`
+      : "";
+    const occSrc = occ.source
+      ? `<div class="src">출처: ${escapeHtml(occ.source)}</div>`
+      : "";
+    const occLimit = occ.claims_not_incidence
+      ? "<div class='src'>산재 처리 건수 기준이며 발생률은 아닙니다.</div>"
+      : "";
+    const limits = (card.limits || [])
+      .map((t) => `<li>${escapeHtml(t)}</li>`)
+      .join("");
+    const care = card.care_context;
+    const careIn = care && care.inpatient;
+    const careLi = (care && !care.missing)
+      ? _evidenceLine("이용·비용 맥락", care) +
+        (careIn && !careIn.missing
+          ? `<li class="area-evidence"><strong>입원 이용</strong> ${escapeHtml(careIn.label || "")}` +
+            (careIn.detail ? ` — ${escapeHtml(careIn.detail)}` : "") +
+            (careIn.source
+              ? `<div class="src">출처: ${escapeHtml(careIn.source)}</div>`
+              : "") +
+            `</li>`
+          : "") +
+        (care.note
+          ? `<li class="area-evidence muted">${escapeHtml(care.note)}</li>`
+          : "")
+      : "";
+    const surg = card.surgery_context;
+    const surgLi = (surg && !surg.missing)
+      ? _evidenceLine("수술 참고(건강보험)", surg) +
+        (surg.note
+          ? `<li class="area-evidence muted">${escapeHtml(surg.note)}</li>`
+          : "")
+      : "";
+    const d298 = card.disease_298;
+    const d298Li = d298
+      ? _evidenceLine("질병분류 급여(298)", d298) +
+        (d298.note
+          ? `<li class="area-evidence muted">${escapeHtml(d298.note)}</li>`
+          : "")
+      : "";
+    return (
+      `<article class="area-card cluster-card">` +
+      `<strong>${i + 1}. ${escapeHtml(card.title || "")}</strong>` +
+      (linked
+        ? `<p class="stat-meta">${linked}과 연결</p>`
+        : "") +
+      (groups
+        ? `<p>살펴볼 수 있는 질환군: ${groups}</p>`
+        : "") +
+      `<ul class="area-evidence-list">` +
+      _evidenceLine("흔함", card.commonness) +
+      _evidenceLine("심각도 참고", card.severity) +
+      careLi +
+      d298Li +
+      surgLi +
+      `<li class="area-evidence"><strong>직군 요인</strong> ${occText}${occReason}${occSrc}${occLimit}</li>` +
+      `</ul>` +
+      (limits
+        ? `<ul class="area-limits muted">${limits}</ul>`
+        : "") +
+      `</article>`
+    );
+  }).join("");
+  return (
+    '<section class="evidence-block area-cards-block" aria-label="염두에 둘 영역">' +
+    areaSectionTitleHtml() +
+    "<p class='muted'>진단이 아니라 참고예요. 흔함은 이 안내가 살피는 참고 질환군 안에서의 상대적 흔함입니다. 이용·비용 맥락은 연령·성별 전체 진료 통계(KOSIS·건보공단)이며 특정 상병 유병이 아닙니다.</p>" +
+    `<div class="area-card-grid">${items}</div>` +
+    "</section>"
+  );
+}
+
+/** 공공 통계 참고 — 접지 않음 (보험 C와 분리) */
+function publicStatsPanelHtml(data) {
+  const panel = data.public_stats || {};
+  const items = panel.items || [];
+  if (!items.length && !(panel.notes || []).length) return "";
+  const rows = items.map((it) => {
+    const missing = it.missing || it.label === "찾지 못했어요";
+    let body = `<strong>${escapeHtml(it.title || "")}</strong> `;
+    if (missing) {
+      body += escapeHtml(it.label || "찾지 못했어요");
+      if (it.reason) {
+        body += ` <span class="stat-meta">${escapeHtml(it.reason)}</span>`;
+      }
+    } else {
+      body += escapeHtml(it.detail || it.label || "");
+    }
+    if (it.source) {
+      body += `<div class="src">출처: ${escapeHtml(it.source)}</div>`;
+    }
+    if (it.note) {
+      body += `<div class="src">${escapeHtml(it.note)}</div>`;
+    }
+    return `<li class="public-stat-item">${body}</li>`;
+  }).join("");
+  const notes = (panel.notes || [])
+    .map((n) => `<li class="muted">${escapeHtml(n)}</li>`)
+    .join("");
+  return (
+    '<section class="public-stats-panel" aria-label="공공 통계 참고">' +
+    `<h2>${escapeHtml(panel.title || "공공 통계 참고")}</h2>` +
+    "<p class='muted'>진단·유병이 아닙니다. 연령·성별 전체 진료·산재 업종 통계를 한곳에 모았습니다.</p>" +
+    (rows ? `<ul class="public-stats-list">${rows}</ul>` : "") +
+    (notes ? `<ul class="public-stats-notes">${notes}</ul>` : "") +
+    "</section>"
+  );
+}
+
+/** 왜 이런 보장을 살펴보나요 — 결정론 steps */
+function whyInsuranceHtml(data) {
+  const r = data.recommendation_rationale || {};
+  const steps = r.steps || [];
+  if (!steps.length) return "";
+  const lis = steps.map((s) => `<li>${escapeHtml(s)}</li>`).join("");
+  const miss = (r.missing_notes || [])
+    .map((n) => `<li class="muted">${escapeHtml(n)}</li>`)
+    .join("");
+  return (
+    '<section class="why-insurance" aria-label="왜 이런 보장">' +
+    "<h2>왜 이런 보장을 살펴보나요</h2>" +
+    `<p class="why-principle">${escapeHtml(r.principle || "진단 아님 · 상품 권유 아님 · 가능 영역/보장 유형 연결")}</p>` +
+    `<ol class="why-steps">${lis}</ol>` +
+    (miss ? `<ul class="why-missing">${miss}</ul>` : "") +
+    "</section>"
+  );
+}
+
+/** C. 보험 연결 — 보장 축 문장만 (KOSIS 통계 블록은 결과 화면에서 숨김) */
+function insuranceBridgeHtml(data) {
+  const bridge = data.insurance_bridge || {};
+  const paras = (bridge.paragraphs || [])
+    .map((p) => `<p>${escapeHtml(p)}</p>`)
+    .join("");
+  if (!paras) return "";
+  return (
+    '<section class="insurance-bridge" aria-label="보험으로 연결">' +
+    "<h2>보험으로 연결해서 보면</h2>" +
+    "<p class='muted'>특정 상품 권유가 아닙니다. 보장 축만 점검합니다.</p>" +
+    paras +
+    "</section>"
+  );
+}
+
+/** D. 추가 질문 (정적, 제출 없음) */
+function deepenQuestionsHtml() {
+  return (
+    "<details class='policy-fold deepen-fold'>" +
+    "<summary>더 알려주시면 정확해져요 (선택)</summary>" +
+    "<p class='muted'>지금은 참고용 안내입니다. 답변 제출은 곧 연결됩니다.</p>" +
+    "<ul class='deepen-list'>" +
+    "<li>증상이 얼마나 이어졌나요? (오늘 · 1주 이내 · 1개월 이상)</li>" +
+    "<li>어떤 운전·작업을 하시나요? (장시간·중량물 등)</li>" +
+    "<li>기존에 실손·단체보험이 있나요?</li>" +
+    "</ul></details>"
+  );
+}
+
+/** E. 안전·면책 */
+function safetyHtml(data) {
+  const disc = escapeHtml(data.disclaimer || "");
+  let care = "";
+  for (const cl of data.symptom_clusters || []) {
+    if (cl && cl.care_hint) {
+      care = String(cl.care_hint);
+      break;
+    }
+  }
+  if (!care) {
+    care =
+      "갑작스러운 극심한 두통, 힘이 빠지는 증상, 말이 어눌해지는 증상이 있다면 " +
+      "바로 응급실을 이용하세요.";
+  }
+  return (
+    '<section class="safety-block" aria-label="주의·안전">' +
+    (disc ? `<p class="disclaimer">${disc}</p>` : "") +
+    `<p class="care-hint">${escapeHtml(care)}</p>` +
+    "</section>"
+  );
+}
+
+function legacyBriefFoldHtml(medicalHtml, data) {
+  const cluster = clusterEvidenceHtml(data);
+  const pub = publicEvidenceHtml(data);
+  if (!medicalHtml && !cluster && !pub) return "";
+  return (
+    "<details class='policy-fold legacy-brief-fold'>" +
+    "<summary>이전 참고 해석·공공 원자료 (접힘)</summary>" +
+    (medicalHtml
+      ? "<div class='why-block explain prose'>" + medicalHtml + "</div>"
+      : "") +
+    cluster +
+    pub +
+    "</details>"
   );
 }
 
@@ -1009,7 +1290,6 @@ function renderGuidance(data) {
   const evidence = cites
     ? "<div class='citations'>" + cites + "</div>"
     : "<p class='muted'>업로드된 약관이 없어 근거 라벨을 붙이지 않았습니다. 위쪽 「약관 올리기」를 이용하세요.</p>";
-  const disc = escapeHtml(data.disclaimer || "");
   const brief = splitBriefSections(data.explanation_why || "");
   const medicalHtml = explainHtml(brief.medical);
   const productWhyHtml = explainHtml(brief.products);
@@ -1019,22 +1299,20 @@ function renderGuidance(data) {
     .filter(Boolean);
   lastGuidanceMatch = buildMatchContext(data);
   guideResult.innerHTML =
-    typeRows(symptoms, data.profile) +
-    (medicalHtml
-      ? "<h2>이 증상에 대한 참고 해석</h2>" +
-        "<p class='muted'>확진·진단이 아닙니다. 건수·입원 비중은 아래 공공 카드를 보세요.</p>" +
-        "<div class='why-block explain prose'>" + medicalHtml + "</div>"
-      : "") +
-
-    clusterEvidenceHtml(data) +
-    publicEvidenceHtml(data) +
+    inputEchoHtml(symptoms, data.profile) +
+    areaCardsHtml(data) +
+    publicStatsPanelHtml(data) +
+    insuranceBridgeHtml(data) +
+    whyInsuranceHtml(data) +
     productCompareHtml(data.products, productWhyHtml) +
+    deepenQuestionsHtml() +
+    safetyHtml(data) +
+    legacyBriefFoldHtml(medicalHtml, data) +
     "<details class='policy-fold cov-fold'><summary>연결된 실손 보장 종류</summary>" +
     "<div class='cov-grid cov-grid-items'>" + covs + "</div></details>" +
     resultChatHtml() +
     "<details class='policy-fold'><summary>약관 근거 (선택)</summary>" +
     evidence + "</details>" +
-    (disc ? "<p class='disclaimer'>" + disc + "</p>" : "") +
     "<button type='button' id='purgeBtn' class='danger-btn'>안내 종료 · 이 기기에서 내 입력 지우기</button>";
   const purgeBtn = document.getElementById("purgeBtn");
   if (purgeBtn) purgeBtn.addEventListener("click", purgeSession);
@@ -1043,16 +1321,6 @@ function renderGuidance(data) {
     const toggle = document.getElementById("policyToggle");
     if (toggle) toggle.click();
   });
-  const typeRationaleBtn = document.getElementById("typeRationaleBtn");
-  if (typeRationaleBtn) {
-    typeRationaleBtn.addEventListener("click", () => {
-      openSheet(
-        "내가 고른 불편 — 분류 설명",
-        typeRationaleBtn.dataset.rationale || "",
-        "진단이 아닌 참고 분류입니다. 확진·추천이 아닙니다.",
-      );
-    });
-  }
   guideResult.querySelectorAll(".ask-doc-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
       openAskForDoc({
@@ -1270,12 +1538,26 @@ async function openBrochurePdf(documentId) {
 }
 
 document.addEventListener("click", (e) => {
+  const matchBtn = e.target && e.target.closest
+    ? e.target.closest("[data-match-ref]")
+    : null;
+  if (matchBtn) {
+    e.preventDefault();
+    openMatchContextSheet();
+    return;
+  }
   const a = e.target && e.target.closest
     ? e.target.closest("a[data-doc-id], .ref-mark[data-doc-id], a.cite[data-doc-id]")
     : null;
   if (!a) return;
   const id = a.getAttribute("data-doc-id");
-  if (!id) return;
+  if (!id || id === "match-context") {
+    if (id === "match-context") {
+      e.preventDefault();
+      openMatchContextSheet();
+    }
+    return;
+  }
   e.preventDefault();
   openBrochurePdf(id);
 });
@@ -1690,14 +1972,42 @@ function formatAnswerHtml(text, sourceByN) {
   return out.join("") || "";
 }
 
+function isMatchContextSource(src) {
+  if (!src) return false;
+  const id = String(src.document_id || "");
+  const lab = String(src.citation_label || src.source_document || "");
+  return id === "match-context" || lab.indexOf("매칭 안내") >= 0;
+}
+
+function matchRefMarkHtml() {
+  return (
+    '<button type="button" class="ref-mark ref-mark-btn" data-match-ref="1">' +
+    "[매칭 안내]</button>"
+  );
+}
+
+function openMatchContextSheet() {
+  const body = (lastGuidanceMatch || "").trim()
+    ? lastGuidanceMatch.slice(0, 1800)
+    : "이 안내는 결과 화면의 증상·상품 연결 요약입니다. PDF 설명서가 아닙니다.";
+  openSheet(
+    "매칭 안내",
+    body,
+    "결과 단계의 증상·담보·상품 요약입니다. 약관 PDF와 다릅니다."
+  );
+}
+
 function docRefMarkHtml(n, sourceByN) {
   const src = sourceByN && sourceByN[String(n)];
+  if (isMatchContextSource(src)) {
+    return matchRefMarkHtml();
+  }
   const page = src && src.page;
   const label = (page != null && page !== "")
     ? "[" + page + "쪽 참고]"
     : "[설명서 참고]";
   const id = src && src.document_id;
-  if (id) {
+  if (id && id !== "match-context") {
     return '<a class="ref-mark" href="' + escapeHtml(brochurePdfHref(id)) +
       '" data-doc-id="' + escapeHtml(id) +
       '" target="_blank" rel="noopener">' + label + "</a>";
@@ -1778,6 +2088,11 @@ function renderCitations(wrap, data) {
       chip.href = webUrl;
       chip.target = "_blank";
       chip.rel = "noopener noreferrer";
+    } else if (id === "match-context" || String(label).indexOf("매칭 안내") >= 0) {
+      chip = document.createElement("button");
+      chip.type = "button";
+      chip.setAttribute("data-match-ref", "1");
+      label = "매칭 안내";
     } else if (id && id !== "web" && id !== "faq") {
       chip = document.createElement("a");
       chip.href = brochurePdfHref(id);

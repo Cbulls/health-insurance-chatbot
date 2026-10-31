@@ -129,6 +129,42 @@ def test_slot_brief_leg_cramp_muscle_and_coverages():
     assert "(R" not in why
 
 
+def test_area_cards_phase1_for_fatigue_headache_cramp():
+    from harag.guidance.hira import HiraStats
+
+    g = GuidanceService(stats=HiraStats()).guide(
+        "",
+        symptom_codes=["fatigue", "headache", "leg_cramp"],
+        occupation="field",
+        concern="tests",
+        age_band="20-29",
+        sex="male",
+    )
+    assert not g.abstained
+    cards = g.area_cards or []
+    assert len(cards) >= 2
+    titles = {c["title"] for c in cards}
+    assert any("근육" in t for t in titles)
+    assert any("머리" in t or "신경" in t for t in titles)
+    for c in cards:
+        occ = c["occupation_factor"]
+        assert occ.get("missing") is False
+        assert occ.get("claims_not_incidence") is True
+        assert "업종" in (occ.get("text") or "") or "운수" in (occ.get("text") or "")
+        assert "발생률" not in (occ.get("text") or "")
+        blob = str(c)
+        assert "확률" not in blob
+        assert "유병률" not in blob
+        assert c.get("commonness")
+        assert c.get("severity")
+    # 세션 닫힌 집합에 KCD 3개면 흔함 라벨이 채워질 수 있음
+    labeled = [c for c in cards if not c["commonness"].get("missing")]
+    assert labeled  # R25/R51/R53 캐시 + age_sex
+    bridge = g.insurance_bridge or {}
+    assert bridge.get("paragraphs")
+    assert "확률" not in " ".join(bridge["paragraphs"])
+
+
 def test_portal_overviews_have_no_filler():
     from harag.guidance.lexicon import load_kb
 
@@ -406,7 +442,7 @@ def test_product_cards_from_retrieve_and_no_raw_in_query():
     assert "010-1111-2222" not in q
     assert "머리가 아파요" not in q
     assert "실손 통원" in q
-    assert "사무직" in q
+    assert "사무·관리직" in q
     assert "30대" in q
     assert "남성" in q
     assert q.endswith("보장")
@@ -575,6 +611,70 @@ def test_guide_returns_symptom_clusters_and_fallback_copy():
     assert "참고용 안내입니다" not in why
     assert "코호트" not in why
     assert "현장·운전" in why or "스트레칭" in why
+
+
+def test_public_stats_and_rationale_for_student_profile():
+    from harag.guidance.hira import HiraStats
+
+    g = GuidanceService(stats=HiraStats()).guide(
+        "",
+        symptom_codes=[
+            "neck_pain", "fatigue", "headache",
+            "urine_color", "stool_color", "palpitation",
+        ],
+        occupation="student",
+        concerns=["inpatient"],
+        age_band="20-29",
+        sex="male",
+    )
+    assert not g.abstained
+    titles = {c["title"] for c in (g.area_cards or [])}
+    assert any("근육" in t for t in titles)  # neck_pain → musculoskeletal
+    assert any("소화" in t or "배뇨" in t for t in titles)
+    panel = g.public_stats or {}
+    assert panel.get("items")
+    care_items = [
+        i for i in panel["items"]
+        if "A043" in (i.get("title") or "") or "진료 이용" in (i.get("title") or "")
+    ]
+    assert care_items and care_items[0].get("missing") is False
+    occ_items = [i for i in panel["items"] if "N034" in (i.get("title") or "")]
+    assert occ_items and occ_items[0].get("missing") is True
+    assert "산재" in (occ_items[0].get("reason") or "")
+    rat = g.recommendation_rationale or {}
+    assert rat.get("steps")
+    assert any("→" in s or "참고 보장" in s for s in rat["steps"])
+    assert any("입원" in s for s in rat["steps"])
+    assert any("산재" in n for n in (rat.get("missing_notes") or []))
+    # GI 영역 HIRA 캐시 공백 고지
+    gi = next(
+        (c for c in g.area_cards if c.get("id") == "gi_urine_stool"), None)
+    if gi:
+        common = gi.get("commonness") or {}
+        if common.get("missing"):
+            assert "캐시" in (common.get("reason") or "")
+
+
+def test_recommendation_rationale_with_products():
+    from harag.guidance.engine import run_rules
+    from harag.guidance.rationale import (
+        build_public_stats_panel, build_recommendation_rationale,
+    )
+
+    rules = run_rules(
+        "", symptom_codes=["cough"], occupation="office",
+        concerns=["outpatient"])
+    rat = build_recommendation_rationale(
+        rules,
+        products=[{
+            "name": "테스트실손",
+            "matched_coverages": ["실손 통원"],
+        }],
+        public_stats=build_public_stats_panel({}, [], occupation="office"),
+    )
+    assert any("기침" in s and "실손" in s for s in rat["steps"])
+    assert any("테스트실손" in s and "실손 통원" in s for s in rat["steps"])
+    assert "진단 아님" in rat["principle"]
 
 
 def test_guard_blocks_precursor_and_risk_wording():

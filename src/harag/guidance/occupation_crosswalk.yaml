@@ -1,0 +1,89 @@
+{
+  "occupations": {
+    "field": {
+      "match": "approx",
+      "preferred": "운수·창고 및 통신업",
+      "industries": [
+        "운수·창고 및 통신업",
+        "육상 및 수상운수업",
+        "철도·항공·창고·운수관련 서비스업",
+        "건설업",
+        "제조업"
+      ],
+      "note": "직종이 아니라 업종 통계이며, 현장·운전·배달은 여러 업종에 걸쳐 있습니다."
+    },
+    "office": {
+      "match": "approx",
+      "preferred": "금융 및 보험업",
+      "industries": [
+        "금융 및 보험업",
+        "전문·보건·교육·여가관련 서비스업",
+        "부동산업 및 임대업"
+      ],
+      "note": "사무·관리직을 단일 업종으로 대응하기 어렵습니다."
+    },
+    "service": {
+      "match": "approx",
+      "preferred": "도소매·음식·숙박업",
+      "industries": [
+        "도소매·음식·숙박업",
+        "시설관리 및 사업지원 서비스업",
+        "전문·보건·교육·여가관련 서비스업"
+      ],
+      "note": "고객응대·판매·요식은 업종 분류와 1:1이 아닙니다."
+    },
+    "agriculture": {
+      "match": "approx",
+      "preferred": "농업",
+      "industries": ["농업"],
+      "note": "농업 종사자를 산재 통계 업종 「농업」에 근사 연결합니다."
+    },
+    "fishery": {
+      "match": "approx",
+      "preferred": "어업",
+      "industries": ["어업"],
+      "note": "어업 종사자를 산재 통계 업종 「어업」에 근사 연결합니다."
+    },
+    "care_health": {
+      "match": "approx",
+      "preferred": "전문·보건·교육·여가관련 서비스업",
+      "industries": [
+        "전문·보건·교육·여가관련 서비스업",
+        "시설관리 및 사업지원 서비스업"
+      ],
+      "note": "의료·돌봄 직군을 보건·교육 서비스 업종에 근사 연결합니다."
+    },
+    "education": {
+      "match": "approx",
+      "preferred": "전문·보건·교육·여가관련 서비스업",
+      "industries": [
+        "전문·보건·교육·여가관련 서비스업"
+      ],
+      "note": "교육·연구 직군을 전문·보건·교육 서비스 업종에 근사 연결합니다."
+    },
+    "homemaker": {
+      "match": "none",
+      "preferred": "",
+      "industries": [],
+      "note": "산재 업종 통계와 연결하지 않습니다."
+    },
+    "retired": {
+      "match": "none",
+      "preferred": "",
+      "industries": [],
+      "note": "산재 업종 통계와 연결하지 않습니다."
+    },
+    "student": {
+      "match": "none",
+      "preferred": "",
+      "industries": [],
+      "note": "산재 업종 통계와 연결하지 않습니다."
+    },
+    "other": {
+      "match": "none",
+      "preferred": "",
+      "industries": [],
+      "note": "산재 업종 통계와 연결하지 않습니다."
+    }
+  }
+}

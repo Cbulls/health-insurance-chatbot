@@ -1,0 +1,65 @@
+{
+  "TX_35001_A043": {
+    "source": "KOSIS · 국민건강보험공단",
+    "tbl_id": "TX_35001_A043",
+    "org_id": "350",
+    "synced_at": "2026-10-31T01:34:30.157525+00:00",
+    "latest_year": "2024",
+    "tbl_nm": "연령별 성별 진료현황(총계)",
+    "cell_layout": "age_sex_metric"
+  },
+  "TX_35004_A001": {
+    "source": "KOSIS · 국민건강보험공단",
+    "tbl_id": "TX_35004_A001",
+    "org_id": "350",
+    "synced_at": "2026-10-31T01:34:30.156155+00:00",
+    "latest_year": "2025",
+    "tbl_nm": "연령별 성별 수술 현황(건강보험)",
+    "cell_layout": "surgery"
+  },
+  "TX_35004_A002": {
+    "source": "KOSIS · 국민건강보험공단",
+    "tbl_id": "TX_35004_A002",
+    "org_id": "350",
+    "synced_at": "2026-10-31T01:34:30.150519+00:00",
+    "latest_year": "2025",
+    "tbl_nm": "연령별 성별 수술 현황(의료급여)",
+    "cell_layout": "surgery"
+  },
+  "TX_35001_A047": {
+    "source": "KOSIS · 국민건강보험공단",
+    "tbl_id": "TX_35001_A047",
+    "org_id": "350",
+    "synced_at": "2026-10-31T01:34:30.154127+00:00",
+    "latest_year": "2024",
+    "tbl_nm": "연령별 성별 진료현황(입원)",
+    "cell_layout": "age_sex_metric"
+  },
+  "TX_35001_A054": {
+    "source": "KOSIS · 국민건강보험공단",
+    "tbl_id": "TX_35001_A054",
+    "org_id": "350",
+    "synced_at": "2026-10-31T01:34:30.152700+00:00",
+    "latest_year": "2007",
+    "tbl_nm": "연령별 진료비 크기별 지급건수 및 진료비(입원)",
+    "cell_layout": "bracket_age"
+  },
+  "DT_11806_N034": {
+    "source": "KOSIS · 고용노동부",
+    "tbl_id": "DT_11806_N034",
+    "org_id": "118",
+    "synced_at": "2026-10-31T01:34:30.154905+00:00",
+    "latest_year": "2024",
+    "tbl_nm": "업무상질병 발생현황-규모별",
+    "cell_layout": "industry_size"
+  },
+  "DT_35001_A0611": {
+    "source": "KOSIS · 국민건강보험공단",
+    "tbl_id": "DT_35001_A0611",
+    "org_id": "350",
+    "synced_at": "2026-10-31T01:37:34.938915+00:00",
+    "latest_year": "2018",
+    "tbl_nm": "298 질병분류별 연령별 급여현황(총계 - 5세단위)",
+    "cell_layout": "disease_inout_age"
+  }
+}

@@ -35,7 +35,9 @@ s3 = ["boto3>=1.34"]  # ObjectStore MinIO/S3
 harag = [
     "guidance/kb.yaml",
     "guidance/brochure_catalog.yaml",
+    "guidance/occupation_crosswalk.yaml",
     "guidance/hira_cache/*.json",
+    "guidance/kosis_cache/**/*.json",
 ]
 
 [tool.setuptools.packages.find]

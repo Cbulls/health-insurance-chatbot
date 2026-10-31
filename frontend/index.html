@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta http-equiv="Cache-Control" content="no-store" />
   <title>인슈런스핏 — 증상으로 실손 비교 안내</title>
-  <link rel="stylesheet" href="/sangtae.css?v=result29" />
+  <link rel="stylesheet" href="/sangtae.css?v=result32" />
 </head>
 <body>
   <header class="top">
@@ -110,14 +110,16 @@
       <h2 class="group-title">연령대 <span class="opt">(통계용, 선택)</span></h2>
       <p class="muted">고르면 결과 화면의 참고 해석·청구 패턴을 그 연령·성별에 맞춰 보여 줍니다. 안 고르면 전체 기준으로 봅니다. 진단이 아닙니다.</p>
       <div class="chip-row" id="ageRow">
-        <button type="button" class="chip" data-age="0-9">9세 이하</button>
+        <button type="button" class="chip" data-age="0-4">0–4세</button>
+        <button type="button" class="chip" data-age="5-9">5–9세</button>
         <button type="button" class="chip" data-age="10-19">10대</button>
         <button type="button" class="chip" data-age="20-29">20대</button>
         <button type="button" class="chip" data-age="30-39">30대</button>
         <button type="button" class="chip" data-age="40-49">40대</button>
         <button type="button" class="chip" data-age="50-59">50대</button>
         <button type="button" class="chip" data-age="60-69">60대</button>
-        <button type="button" class="chip" data-age="70+">70대 이상</button>
+        <button type="button" class="chip" data-age="70-79">70대</button>
+        <button type="button" class="chip" data-age="80+">80세 이상</button>
       </div>
 
       <h2 class="group-title">성별 <span class="opt">(통계용, 선택)</span></h2>
@@ -128,11 +130,17 @@
       </div>
 
       <h2 class="group-title">직업군</h2>
-      <p class="muted">보험 종류를 고를 때 씁니다.</p>
+      <p class="muted">보험 종류·직군 참고 통계를 고를 때 씁니다.</p>
       <div class="chip-row">
-        <button type="button" class="chip" data-occ="office">사무직</button>
-        <button type="button" class="chip" data-occ="service">서비스직</button>
-        <button type="button" class="chip" data-occ="field">현장·운전직</button>
+        <button type="button" class="chip" data-occ="office">사무·관리직</button>
+        <button type="button" class="chip" data-occ="service">고객응대·판매·요식</button>
+        <button type="button" class="chip" data-occ="field">현장·운전·배달</button>
+        <button type="button" class="chip" data-occ="agriculture">농업 종사자</button>
+        <button type="button" class="chip" data-occ="fishery">어업 종사자</button>
+        <button type="button" class="chip" data-occ="care_health">의료·돌봄</button>
+        <button type="button" class="chip" data-occ="education">교육·연구</button>
+        <button type="button" class="chip" data-occ="homemaker">가사·육아(무급)</button>
+        <button type="button" class="chip" data-occ="retired">은퇴·무직</button>
         <button type="button" class="chip" data-occ="student">학생</button>
         <button type="button" class="chip" data-occ="other">기타</button>
       </div>
@@ -199,6 +207,6 @@
     </form>
   </section>
 
-  <script src="/sangtae.js?v=result29"></script>
+  <script src="/sangtae.js?v=result32"></script>
 </body>
 </html>

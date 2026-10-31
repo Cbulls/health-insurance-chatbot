@@ -5,6 +5,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 
+from harag.guidance.age_bands import AGE_UI_LABELS as AGE_QUERY_LABELS
 from harag.guidance.engine import (
     CONCERNS, OCCUPATIONS, CoverageHit, RuleResult, run_rules,
 )
@@ -19,16 +20,6 @@ from harag.security.pii import PiiMasker
 
 logger = logging.getLogger("harag.guidance")
 
-AGE_QUERY_LABELS = {
-    "0-9": "9세 이하",
-    "10-19": "10대",
-    "20-29": "20대",
-    "30-39": "30대",
-    "40-49": "40대",
-    "50-59": "50대",
-    "60-69": "60대",
-    "70+": "70대 이상",
-}
 SEX_QUERY_LABELS = {
     "male": "남성",
     "female": "여성",
@@ -78,6 +69,11 @@ class GuidanceResult:
     ref_stats: list[dict] = field(default_factory=list)
     symptom_clusters: list[dict] = field(default_factory=list)
     cluster_stats: list[dict] = field(default_factory=list)
+    area_cards: list[dict] = field(default_factory=list)
+    insurance_bridge: dict = field(default_factory=dict)
+    kosis: dict = field(default_factory=dict)
+    public_stats: dict = field(default_factory=dict)
+    recommendation_rationale: dict = field(default_factory=dict)
     guard_flags: list[str] = field(default_factory=list)
     abstained: bool = False
     abstain_reason: str | None = None
@@ -87,11 +83,13 @@ class GuidanceResult:
 
 class GuidanceService:
     def __init__(self, masker: PiiMasker | None = None,
-                 pipeline=None, llm=None, stats=None):
+                 pipeline=None, llm=None, stats=None,
+                 occupation_stats=None):
         self._masker = masker or PiiMasker()
         self._pipeline = pipeline
         self._llm = llm
         self._stats = stats
+        self._occupation_stats = occupation_stats
 
     def assess(self, text: str, occupation: str | None = None,
                concern: str | None = None,
@@ -153,17 +151,72 @@ class GuidanceService:
 
         ref_stats = self._lookup_stats(rules, age_band=age_band, sex=sex)
         codes = [h.code for h in rules.symptoms]
+        from harag.guidance.areas import (
+            build_area_cards, build_insurance_bridge, match_area_specs,
+        )
         from harag.guidance.clusters import (
             cluster_example_kcds, match_symptom_clusters,
         )
+        from harag.guidance.occupation_stats import default_occupation_stats
+
+        # 영역 카드 KCD가 증상 ref에 없어도 통계를 보강한다.
+        area_kcds: list[str] = []
+        for _aid, spec, _linked in match_area_specs(codes):
+            for k in spec.get("kcds") or []:
+                if k and k not in area_kcds:
+                    area_kcds.append(str(k))
+        area_stats = self._lookup_kcd_stats(
+            area_kcds, age_band=age_band, sex=sex,
+            labels=[c.label for c in rules.coverages])
+        stats_for_cards = _merge_stats_by_kcd(ref_stats, area_stats)
+
         symptom_clusters = match_symptom_clusters(codes)
         cluster_stats = self._lookup_cluster_stats(
             symptom_clusters, rules, age_band=age_band, sex=sex)
+        occ_client = self._occupation_stats or default_occupation_stats()
+        area_cards = build_area_cards(
+            rules, ref_stats=stats_for_cards,
+            age_band=age_band, sex=sex,
+            occupation_client=occ_client)
+        from harag.guidance.kosis_nhis import build_kosis_bundle
+        kosis = build_kosis_bundle(
+            [c.get("id") or "" for c in area_cards],
+            age_band, sex)
+        # 영역 카드에 이용·비용 맥락(상병 흔함과 분리된 보조 슬롯)
+        from harag.guidance.kosis_nhis import AREA_SURGERY_LINKS
+        care = kosis.get("care_context") or {}
+        if care and not care.get("missing"):
+            for card in area_cards:
+                card["care_context"] = care
+        surg_nhi = kosis.get("surgery_nhi") or {}
+        if surg_nhi and not surg_nhi.get("missing"):
+            for card in area_cards:
+                if card.get("id") in AREA_SURGERY_LINKS:
+                    card["surgery_context"] = surg_nhi
+        disease_by = kosis.get("disease_298_by_area") or {}
+        for card in area_cards:
+            dctx = disease_by.get(card.get("id") or "") or {}
+            if dctx:
+                card["disease_298"] = dctx
+        insurance_bridge = build_insurance_bridge(
+            area_cards, rules.coverages,
+            occupation=rules.occupation, concerns=rules.concerns,
+            kosis=kosis)
+        from harag.guidance.rationale import (
+            build_public_stats_panel, build_recommendation_rationale,
+        )
+        public_stats = build_public_stats_panel(
+            kosis, area_cards,
+            occupation=rules.occupation, age_band=age_band, sex=sex)
+        recommendation_rationale = build_recommendation_rationale(
+            rules, products=products, public_stats=public_stats)
         why_raw, _caution_unused = self._explain(
             rules, citations, products=products, ref_stats=ref_stats,
             age_band=age_band, sex=sex,
             symptom_clusters=symptom_clusters,
-            cluster_stats=cluster_stats)
+            cluster_stats=cluster_stats,
+            public_stats=public_stats,
+            recommendation_rationale=recommendation_rationale)
         allowed = allowed_labels(rules.coverages)
         catalog = known_coverage_labels()
         keep = _product_keep_phrases(products)
@@ -189,6 +242,11 @@ class GuidanceService:
             ref_stats=ref_stats,
             symptom_clusters=symptom_clusters,
             cluster_stats=cluster_stats,
+            area_cards=area_cards,
+            insurance_bridge=insurance_bridge,
+            kosis=kosis,
+            public_stats=public_stats,
+            recommendation_rationale=recommendation_rationale,
             guard_flags=why_flags,
             raw_stored=False,
             disclaimer=disclaimer,
@@ -205,6 +263,21 @@ class GuidanceService:
             return list(lookup(rules, age_band=age_band, sex=sex) or [])
         except Exception as e:  # noqa: BLE001
             logger.info("guidance stats skip: %s", type(e).__name__)
+            return []
+
+    def _lookup_kcd_stats(self, kcds: list[str], age_band: str | None,
+                          sex: str | None,
+                          labels: list[str] | None = None) -> list[dict]:
+        if self._stats is None or not kcds:
+            return []
+        lookup = getattr(self._stats, "lookup_kcds", None)
+        if not callable(lookup):
+            return []
+        try:
+            return list(lookup(
+                kcds, age_band=age_band, sex=sex, labels=labels) or [])
+        except Exception as e:  # noqa: BLE001
+            logger.info("guidance area stats skip: %s", type(e).__name__)
             return []
 
     def _lookup_cluster_stats(
@@ -234,6 +307,8 @@ class GuidanceService:
                  sex: str | None = None,
                  symptom_clusters: list[dict] | None = None,
                  cluster_stats: list[dict] | None = None,
+                 public_stats: dict | None = None,
+                 recommendation_rationale: dict | None = None,
                  ) -> tuple[str, str]:
         why_fb = _why_fallback(
             rules, products, ref_stats=ref_stats,
@@ -244,7 +319,9 @@ class GuidanceService:
             rules, citations, products, ref_stats=ref_stats,
             age_band=age_band, sex=sex,
             symptom_clusters=symptom_clusters,
-            cluster_stats=cluster_stats)
+            cluster_stats=cluster_stats,
+            public_stats=public_stats,
+            recommendation_rationale=recommendation_rationale)
         if self._llm is None or not hasattr(self._llm, "complete"):
             return why_fb, ""
         allowed = ", ".join(c.label for c in rules.coverages)
@@ -333,6 +410,20 @@ class GuidanceService:
             p.pop("_fit", None)
             p.pop("_library_fill", None)
         return citations, products
+
+
+def _merge_stats_by_kcd(*groups: list[dict]) -> list[dict]:
+    out: list[dict] = []
+    seen: set[str] = set()
+    for group in groups:
+        for row in group or []:
+            key = "".join(
+                c for c in str(row.get("kcd") or "").upper() if c.isalnum())
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            out.append(row)
+    return out
 
 
 def closed_product_query(
@@ -548,6 +639,11 @@ def _product_fit_score(
             score += 2.5
         if "injury" in cov_codes or "상해 관련 실손" in matched:
             score += 1.0
+    if occupation == "care_health":
+        if any(k in blob for k in ("상해", "입원", "실손", "injury")):
+            score += 1.5
+        if "injury" in cov_codes or "outpatient" in cov_codes:
+            score += 0.5
     if (p.get("cost_nature") or "") == "mixed":
         score += 1.0
     return score
@@ -862,7 +958,12 @@ def _insurance_lines(rules: RuleResult) -> list[str]:
         parts.append("실손 입원을 중심으로 살펴볼 수 있습니다.")
     if rules.occupation == "field" and "injury" in codes:
         parts.append(
-            "현장·운전이면 상해 관련 실손 축도 함께 둡니다."
+            "현장·운전·배달이면 상해 관련 실손 축도 함께 둡니다."
+        )
+    elif rules.occupation == "care_health" and (
+            "injury" in codes or "outpatient" in codes):
+        parts.append(
+            "의료·돌봄 업무면 통원·상해 축을 함께 점검해 볼 수 있습니다."
         )
     elif "injury" in codes:
         parts.append("상해 관련 실손도 함께 둘 수 있습니다.")
@@ -1009,12 +1110,25 @@ def _facts(rules: RuleResult, citations: list[str],
            age_band: str | None = None,
            sex: str | None = None,
            symptom_clusters: list[dict] | None = None,
-           cluster_stats: list[dict] | None = None) -> str:
-    return _template(
+           cluster_stats: list[dict] | None = None,
+           public_stats: dict | None = None,
+           recommendation_rationale: dict | None = None) -> str:
+    base = _template(
         rules, citations, products, ref_stats=ref_stats,
         age_band=age_band, sex=sex,
         symptom_clusters=symptom_clusters,
         cluster_stats=cluster_stats)
+    from harag.guidance.rationale import public_stats_fact_lines
+    extra = public_stats_fact_lines(public_stats)
+    if recommendation_rationale:
+        extra.append("[추천이유 steps — 쉬운 말로만 다듬기, 새 보장·상품·숫자 금지]")
+        for s in recommendation_rationale.get("steps") or []:
+            extra.append(f"- 추천이유: {s}")
+        for n in recommendation_rationale.get("missing_notes") or []:
+            extra.append(f"- 추천이유고지: {n}")
+    if not extra:
+        return base
+    return base + "\n" + "\n".join(extra)
 
 
 def _public_ref_fact_lines(

@@ -6,9 +6,15 @@ from dataclasses import dataclass, field
 from harag.guidance.lexicon import SymptomHit, load_kb, match_symptoms
 
 OCCUPATIONS = {
-    "service": "서비스직",
-    "office": "사무직",
-    "field": "현장·운전직",
+    "office": "사무·관리직",
+    "service": "고객응대·판매·요식",
+    "field": "현장·운전·배달",
+    "agriculture": "농업 종사자",
+    "fishery": "어업 종사자",
+    "care_health": "의료·돌봄",
+    "education": "교육·연구",
+    "homemaker": "가사·육아(무급)",
+    "retired": "은퇴·무직",
     "student": "학생",
     "other": "기타",
 }

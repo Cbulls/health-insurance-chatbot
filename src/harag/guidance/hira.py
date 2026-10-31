@@ -17,6 +17,11 @@ _AGE = {
 }
 _SEX = {"male", "female"}
 
+
+def _fold_age(age_band: str | None) -> str | None:
+    from harag.guidance.age_bands import hira_age_band
+    return hira_age_band(age_band)
+
 logger = logging.getLogger("harag.hira")
 
 SOURCE = "건강보험심사평가원 질병정보서비스"
@@ -167,9 +172,10 @@ class HiraStats:
         except (TypeError, ValueError):
             share_f = None
         age_count = None
-        if age_band in _AGE and sex in _SEX:
+        folded = _fold_age(age_band)
+        if folded in _AGE and sex in _SEX:
             by_age = data.get("by_age_sex") or {}
-            raw = by_age.get(f"{age_band}|{sex}")
+            raw = by_age.get(f"{folded}|{sex}")
             if raw is not None:
                 try:
                     age_count = int(raw)
