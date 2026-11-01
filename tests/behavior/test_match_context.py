@@ -76,3 +76,89 @@ def test_soft_abstain_관련_내용이_있지_않_normalized():
     assert out.answer == SOFT_NO_EVIDENCE_ANSWER
     assert "c1" in out.cited_chunk_ids
     assert out.abstain_reason is None
+
+
+def test_pack_keeping_priority_keeps_match_under_budget():
+    from harag.retrieval.context_compact import (
+        approx_tokens,
+        pack_keeping_priority,
+    )
+
+    match = prepend_match_context([], "매칭 " + ("요약 " * 200))[0]
+    big = "가" * 4000
+    pdfs = [
+        _scored(f"pdf-{i}", big, score=0.9 - i * 0.01) for i in range(5)
+    ]
+    max_tok = 2000
+    out = pack_keeping_priority(
+        [match] + pdfs,
+        priority_ids={MATCH_CONTEXT_CHUNK_ID},
+        max_tokens=max_tok,
+    )
+    assert out[0].chunk.meta.chunk_id == MATCH_CONTEXT_CHUNK_ID
+    match_cost = approx_tokens(match.chunk.text)
+    pdf_total = sum(
+        approx_tokens(sc.chunk.text) for sc in out
+        if sc.chunk.meta.chunk_id != MATCH_CONTEXT_CHUNK_ID
+    )
+    if match_cost < max_tok:
+        assert pdf_total <= max_tok - match_cost
+        total = match_cost + pdf_total
+        assert total <= max_tok
+    else:
+        assert pdf_total == 0
+
+
+def test_pipeline_match_explain_skips_retrieve():
+    from harag.api.pipeline import QueryPipelineImpl
+    from harag.contracts.boundaries import AuthContext
+    from harag.generation.generator import AnswerGenerator
+
+    class BoomRetriever:
+        def retrieve(self, *a, **k):
+            raise AssertionError("match-explain must skip retrieve")
+
+    pipe = QueryPipelineImpl(
+        retriever=BoomRetriever(),
+        generator=AnswerGenerator(min_score=0.15),
+        web_browser=None,
+        context_max_tokens=3500,
+    )
+    auth = AuthContext(user_id="t", acl_tags=frozenset({"owner:t"}))
+    results, _tr, _intent, short = pipe._assemble_results(
+        "추천된 상품의 매칭 이유를 알려주세요.",
+        auth, None,
+        document_id="doc-1",
+        document_ids=["doc-1"],
+        match_context="【왜】두통과 통원 담보가 연결됩니다.\n【상품】메리츠",
+    )
+    assert short is None
+    assert results
+    assert all(
+        r.chunk.meta.chunk_id == MATCH_CONTEXT_CHUNK_ID for r in results
+    )
+
+
+def test_generate_retries_once_on_cost_limit():
+    from harag.generation.generator import AnswerGenerator
+    from harag.generation.llm_client import CostLimitError
+
+    calls = {"n": 0}
+
+    class FlakyLLM:
+        def complete(self, query, context_texts, context_ids):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise CostLimitError("too big")
+            return ("축소 후 답변입니다.", [context_ids[0]])
+
+    gen = AnswerGenerator(llm=FlakyLLM(), min_score=0.1)
+    ctx = [
+        _scored("match-context", "매칭 안내 본문", 1.0),
+        _scored("pdf-low", "낮음 " * 50, 0.2),
+        _scored("pdf-high", "높음 " * 50, 0.8),
+    ]
+    out = gen.generate("매칭 이유?", ctx)
+    assert calls["n"] == 2
+    assert not out.abstained
+    assert out.answer and "축소" in out.answer

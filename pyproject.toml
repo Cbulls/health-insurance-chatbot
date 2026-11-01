@@ -36,6 +36,7 @@ harag = [
     "guidance/kb.yaml",
     "guidance/brochure_catalog.yaml",
     "guidance/occupation_crosswalk.yaml",
+    "guidance/coverage_priority_rules.yaml",
     "guidance/hira_cache/*.json",
     "guidance/kosis_cache/**/*.json",
 ]

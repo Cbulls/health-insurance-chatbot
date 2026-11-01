@@ -9,6 +9,7 @@ from harag.schemas.chunk import ChunkMetadata, ChunkType
 
 FAQ_CHUNK_ID = "faq-context"
 PREMIUM_CHUNK_ID = "premium-context"
+BROCHURE_CATALOG_CHUNK_ID = "brochure-catalog"
 _FAQ_SCORE = 1.0
 
 
@@ -73,6 +74,39 @@ def scored_premium_chunk(
         chunking_version="faq-1",
         embedding_model_id="none",
         content_hash="premium-guide",
+        created_at=datetime.now(timezone.utc),
+    )
+    return ScoredChunk(chunk=Chunk(meta=meta, text=text), score=_FAQ_SCORE)
+
+
+def scored_brochure_catalog_chunk(
+        *,
+        document_id: str,
+        answer: str,
+        display_name: str = "",
+) -> ScoredChunk:
+    """추천 질문 결정론 답용 합성 청크 (soft no-evidence 우회 근거)."""
+    label = (display_name or "상품요약서").strip() or "상품요약서"
+    text = (
+        "상품요약서 카탈로그 안내\n"
+        f"문서: {label}\n"
+        "아래는 공개 상품요약서 메타·요약으로 구성한 안내이다.\n\n"
+        + (answer or "")
+    )
+    meta = ChunkMetadata(
+        chunk_id=BROCHURE_CATALOG_CHUNK_ID,
+        document_id=document_id or "brochure-catalog",
+        source_block_ids=[BROCHURE_CATALOG_CHUNK_ID],
+        struct_path="상품요약서카탈로그",
+        chunk_type=ChunkType.body,
+        security_level="internal",
+        acl_tags=["scope:library", "lib:knowledge"],
+        source_document=label,
+        citation_label=f"상품요약서 · {label}",
+        parsing_version="brochure-suggest-1",
+        chunking_version="brochure-suggest-1",
+        embedding_model_id="none",
+        content_hash="brochure-catalog",
         created_at=datetime.now(timezone.utc),
     )
     return ScoredChunk(chunk=Chunk(meta=meta, text=text), score=_FAQ_SCORE)

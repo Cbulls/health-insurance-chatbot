@@ -129,6 +129,49 @@ def pack_by_token_budget(
     return kept
 
 
+def pack_keeping_priority(
+    chunks: list[ScoredChunk],
+    *,
+    priority_ids: set[str] | frozenset[str],
+    max_tokens: int = 3500,
+) -> list[ScoredChunk]:
+    """priority 청크를 먼저 확보한 뒤, 남은 예산으로 나머지를 점수순 패킹.
+
+    나머지 청크는 예산을 넘는 항목을 건너뛴다(첫 청크 강제 수락 없음).
+    """
+    if not chunks:
+        return []
+    prio_set = set(priority_ids or ())
+    priority: list[ScoredChunk] = []
+    rest: list[ScoredChunk] = []
+    seen: set[str] = set()
+    for sc in chunks:
+        cid = sc.chunk.meta.chunk_id
+        if cid in seen:
+            continue
+        seen.add(cid)
+        if cid in prio_set:
+            priority.append(sc)
+        else:
+            rest.append(sc)
+    used = sum(approx_tokens(sc.chunk.text) for sc in priority)
+    # priority만으로도 예산을 넘으면 priority만 반환(매칭 안내는 유지)
+    if used >= max_tokens:
+        return priority
+    ordered = sorted(rest, key=lambda s: s.score, reverse=True)
+    filled: list[ScoredChunk] = []
+    for sc in ordered:
+        cost = approx_tokens(sc.chunk.text)
+        if used + cost > max_tokens:
+            continue
+        filled.append(sc)
+        used += cost
+        if used >= max_tokens:
+            break
+    filled.sort(key=lambda s: s.score, reverse=True)
+    return priority + filled
+
+
 def prepare_context(
     candidates: list[ScoredChunk],
     *,

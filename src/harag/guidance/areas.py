@@ -16,7 +16,17 @@ from harag.guidance.stat_labels import (
 )
 
 AREA_CARD_CAP = 4
+AREA_CARD_PRIMARY = 2
 _SEX_UI = {"male": "남성", "female": "여성"}
+
+_USER_LIMIT_DROP = (
+    "임상 후보 문구는 초안",
+    "draft",
+    "의료 검수가 필요",
+    "진단이 아닙니다",
+    "집단 청구 경향",
+    "개인의 중증도",
+)
 
 
 def load_areas_catalog(kb: dict | None = None) -> dict[str, dict]:
@@ -38,21 +48,74 @@ def _stats_by_kcd(ref_stats: list[dict] | None) -> dict[str, dict]:
     return out
 
 
+def _symptom_area_degrees(catalog: dict[str, dict]) -> dict[str, int]:
+    deg: dict[str, int] = {}
+    for spec in catalog.values():
+        for s in spec.get("symptom_codes") or []:
+            code = str(s)
+            if code:
+                deg[code] = deg.get(code, 0) + 1
+    return deg
+
+
+def _specificity_score(
+        linked: list[str], deg: dict[str, int]) -> float:
+    """연결된 영역 수가 적은 증상일수록 가중↑."""
+    if not linked:
+        return 0.0
+    score = 0.0
+    for code in linked:
+        n = max(int(deg.get(code) or 1), 1)
+        score += 1.0 / float(n)
+    score += 0.15 * len(linked)
+    return score
+
+
 def match_area_specs(symptom_codes: list[str],
-                     catalog: dict[str, dict] | None = None) -> list[tuple[str, dict, list[str]]]:
-    """(area_id, spec, linked_codes) 매칭 강도 순."""
+                     catalog: dict[str, dict] | None = None
+                     ) -> list[tuple[str, dict, list[str], float]]:
+    """(area_id, spec, linked_codes, match_score) 특이도 점수 순."""
     codes = [c for c in symptom_codes if c]
     code_set = set(codes)
     cat = catalog if catalog is not None else load_areas_catalog()
-    hits: list[tuple[int, str, dict, list[str]]] = []
+    deg = _symptom_area_degrees(cat)
+    hits: list[tuple[float, int, str, dict, list[str]]] = []
     for aid, spec in cat.items():
         want = [str(s) for s in (spec.get("symptom_codes") or []) if s]
         linked = [s for s in want if s in code_set]
         if not linked:
             continue
-        hits.append((len(linked), aid, spec, linked))
-    hits.sort(key=lambda x: (-x[0], x[1]))
-    return [(aid, spec, linked) for _, aid, spec, linked in hits[:AREA_CARD_CAP]]
+        score = _specificity_score(linked, deg)
+        hits.append((score, len(linked), aid, spec, linked))
+    hits.sort(key=lambda x: (-x[0], -x[1], x[2]))
+    return [
+        (aid, spec, linked, score)
+        for score, _n, aid, spec, linked in hits[:AREA_CARD_CAP]
+    ]
+
+
+def scrub_user_limits(limits: list[str] | None) -> list[str]:
+    out: list[str] = []
+    for raw in limits or []:
+        t = str(raw).strip()
+        if not t:
+            continue
+        if any(x in t for x in _USER_LIMIT_DROP):
+            continue
+        out.append(t)
+    return out
+
+
+def scrub_stat_reason(reason: str | None) -> str:
+    """UI용 — 캐시·KCD 코드 등 내부 표현 순화."""
+    text = str(reason or "").strip()
+    if not text:
+        return ""
+    if "캐시 미적재" in text or "심평원 캐시" in text:
+        return "이 영역의 청구 참고값을 아직 준비하지 못했어요."
+    if "캐시" in text:
+        return "참고 통계를 아직 준비하지 못했어요."
+    return text
 
 
 def _rep_kcd(kcds: list[str], by_kcd: dict[str, dict]) -> str | None:
@@ -96,7 +159,8 @@ def build_area_cards(
         if code not in code_to_label and isinstance(spec, dict):
             code_to_label[code] = str(spec.get("label") or code)
 
-    matched = match_area_specs([h.code for h in rules.symptoms], catalog)
+    selected_codes = [h.code for h in rules.symptoms]
+    matched = match_area_specs(selected_codes, catalog)
     if not matched:
         return []
 
@@ -104,7 +168,7 @@ def build_area_cards(
     # 세션 닫힌 집합: 매칭된 영역들의 모든 KCD
     session_counts: list[tuple[str, int | None]] = []
     seen_k: set[str] = set()
-    for _aid, spec, _linked in matched:
+    for _aid, spec, _linked, _sc in matched:
         for raw in spec.get("kcds") or []:
             key = _norm_kcd(raw)
             if not key or key in seen_k:
@@ -117,9 +181,10 @@ def build_area_cards(
     age_lab = _AGE_UI.get(age_band or "") or (age_band or "")
     sex_lab = _SEX_UI.get(sex or "") or ""
     occ_client = occupation_client or default_occupation_stats()
+    selected_n = len(selected_codes)
 
     cards: list[dict] = []
-    for aid, spec, linked in matched:
+    for aid, spec, linked, match_score in matched:
         kcds = [_norm_kcd(k) for k in (spec.get("kcds") or []) if _norm_kcd(k)]
         focus = _rep_kcd(kcds, by_kcd)
         common = commonness_from_counts(
@@ -143,28 +208,30 @@ def build_area_cards(
         if common.get("missing") and uncached:
             common = {
                 **common,
-                "reason": (
-                    "심평원 캐시 미적재 "
-                    f"({', '.join(uncached)})"
+                "reason": scrub_stat_reason(
+                    "심평원 캐시 미적재 (" + ", ".join(uncached) + ")"
                 ),
             }
-        elif common.get("missing") and not common.get("reason"):
+        elif common.get("missing"):
             common = {
                 **common,
-                "reason": "닫힌 집합에 비교할 청구 건수가 부족합니다.",
+                "reason": scrub_stat_reason(
+                    common.get("reason")
+                    or "닫힌 집합에 비교할 청구 건수가 부족합니다."
+                ),
             }
         if sev.get("missing") and uncached and focus in uncached:
             sev = {
                 **sev,
-                "reason": (
-                    "심평원 캐시 미적재 "
-                    f"({focus})"
-                ),
+                "reason": scrub_stat_reason(f"심평원 캐시 미적재 ({focus})"),
             }
-        elif sev.get("missing") and not sev.get("reason"):
+        elif sev.get("missing"):
             sev = {
                 **sev,
-                "reason": "입원 비중 캐시가 없거나 해당 구간이 비어 있습니다.",
+                "reason": scrub_stat_reason(
+                    sev.get("reason")
+                    or "입원 비중 참고값이 없거나 해당 구간이 비어 있습니다."
+                ),
             }
 
         groups = []
@@ -185,6 +252,9 @@ def build_area_cards(
             "linked_symptoms": [
                 code_to_label.get(c, c) for c in linked
             ],
+            "linked_count": len(linked),
+            "selected_symptom_count": selected_n,
+            "match_score": round(float(match_score), 4),
             "candidate_groups": groups,
             "kcds": kcds,
             "commonness": common,
@@ -194,13 +264,11 @@ def build_area_cards(
                 "source": occ.source,
                 "missing": occ.missing,
                 "claims_not_incidence": occ.claims_not_incidence,
-                "reason": occ.reason or "",
+                "reason": scrub_stat_reason(occ.reason or ""),
             },
-            "limits": [
-                str(x).strip()
-                for x in (spec.get("limits") or [])
-                if str(x).strip()
-            ],
+            "limits": scrub_user_limits(
+                [str(x) for x in (spec.get("limits") or [])]
+            ),
         })
     return cards
 

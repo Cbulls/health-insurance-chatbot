@@ -192,7 +192,8 @@ def test_why_fallback_mentions_matched_products():
     assert "실손 통원" in text
     assert "실손 검사" in text
     assert "## 비교할 상품 2개" in text
-    assert "매치되며" in text
+    assert "매치됩니다" in text or "매치되며" in text
+    assert "**테스트생명 테스트건강보험**" in text or "테스트건강보험" in text
     assert "정액 진단" in text
 
 
@@ -241,11 +242,14 @@ def test_guide_template_has_overlap_not_age_band():
 
 
 def test_guide_template_has_disclaimer_and_no_company():
+    from harag.guidance.service import PRODUCT_MATCH_DISCLAIMER
     g = GuidanceService().guide(
         "허리가 아파요", occupation="office", concern="outpatient")
     assert not g.abstained
     assert g.raw_stored is False
-    assert g.disclaimer == DISCLAIMER
+    assert DISCLAIMER in g.disclaimer
+    assert PRODUCT_MATCH_DISCLAIMER in g.disclaimer
+    assert "100%" in g.disclaimer
     assert DISCLAIMER not in g.explanation
     assert DISCLAIMER not in g.explanation_why
     assert DISCLAIMER not in g.explanation_caution

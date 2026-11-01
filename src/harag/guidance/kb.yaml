@@ -1074,7 +1074,10 @@
     "musculoskeletal_motion": {
       "title": "근육·움직임 관련",
       "clinical_review": "draft",
-      "symptom_codes": ["leg_cramp", "fatigue", "neck_pain"],
+      "symptom_codes": [
+        "leg_cramp", "fatigue", "neck_pain",
+        "back_pain", "shoulder_pain", "numbness", "swelling"
+      ],
       "kcds": ["R25", "M54"],
       "candidate_groups": [
         {
@@ -1099,7 +1102,9 @@
     "head_neuro": {
       "title": "머리·신경 관련",
       "clinical_review": "draft",
-      "symptom_codes": ["headache", "fatigue", "sleep_trouble"],
+      "symptom_codes": [
+        "headache", "fatigue", "sleep_trouble", "dizziness", "numbness"
+      ],
       "kcds": ["R51"],
       "candidate_groups": [
         {
@@ -1116,12 +1121,15 @@
     "balance_metabolic": {
       "title": "몸의 균형·대사 관련",
       "clinical_review": "draft",
-      "symptom_codes": ["leg_cramp", "fatigue", "appetite_loss", "weight_change", "sleep_trouble", "thirst"],
+      "symptom_codes": [
+        "leg_cramp", "fatigue", "appetite_loss", "weight_change",
+        "sleep_trouble", "thirst", "night_sweat", "swelling"
+      ],
       "kcds": ["R53", "R63"],
       "candidate_groups": [
         {
-          "label": "피로·회복·체중·식욕과 관련해 공개 자료에서 함께 살펴보라고 안내되는 참고 영역",
-          "source": "질병관리청 국가건강정보포털 — 피로·식욕부진(개요) 기반 큐레이션"
+          "label": "혈당·대사 관련 참고(당뇨·비만 등)",
+          "source": "질병관리청 국가건강정보포털 — 피로·식욕부진·당뇨(개요) 기반 큐레이션"
         }
       ],
       "limits": [
@@ -1156,6 +1164,23 @@
         {
           "label": "호흡곤란·두근거림·기침과 함께 살펴볼 수 있는 호흡·순환 참고 질환군",
           "source": "질병관리청 국가건강정보포털 — 호흡곤란·두근거림(개요) 기반 큐레이션"
+        }
+      ],
+      "limits": [
+        "진단이 아닙니다",
+        "집단 청구 경향이며 개인의 중증도가 아닙니다",
+        "임상 후보 문구는 초안(draft)이며 의료 검수가 필요합니다"
+      ]
+    },
+    "skin_derm": {
+      "title": "피부 관련",
+      "clinical_review": "draft",
+      "symptom_codes": ["skin", "leg_itch"],
+      "kcds": ["L29"],
+      "candidate_groups": [
+        {
+          "label": "가려움·발진·두드러기 등과 함께 살펴볼 수 있는 피부 참고 질환군",
+          "source": "질병관리청 국가건강정보포털 — 가려움증·두드러기(개요)"
         }
       ],
       "limits": [

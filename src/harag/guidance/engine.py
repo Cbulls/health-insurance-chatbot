@@ -14,7 +14,7 @@ OCCUPATIONS = {
     "care_health": "의료·돌봄",
     "education": "교육·연구",
     "homemaker": "가사·육아(무급)",
-    "retired": "은퇴·무직",
+    "retired": "무직·취업준비",
     "student": "학생",
     "other": "기타",
 }

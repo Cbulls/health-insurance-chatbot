@@ -226,17 +226,25 @@ def _scored(cid="c1", text="본문", score=0.9):
 
 def test_no_evidence_answer_becomes_soft_guidance():
     from harag.generation.generator import AnswerGenerator
-    from harag.security.output_guard import SOFT_NO_EVIDENCE_ANSWER
+    from harag.security.output_guard import (
+        SOFT_NO_EVIDENCE_ANSWER,
+        soft_no_evidence_answer,
+    )
 
     class NoEvidenceLLM:
         def complete(self, query, context_texts, context_ids):
             return "제공된 문서에는 관련 정보가 포함되어 있지 않아 알 수 없습니다.", []
 
     gen = AnswerGenerator(llm=NoEvidenceLLM(), min_score=0.1)
-    out = gen.generate("보험료는?", [_scored()])
+    # 중립 질의 → 기본(면책·대기) soft 안내
+    out = gen.generate("통원 담보 한도는?", [_scored()])
     assert not out.abstained
     assert out.answer == SOFT_NO_EVIDENCE_ANSWER
     assert out.cited_chunk_ids  # 검색 청크를 칩으로 연결
+    # 보험료 질의 → 주제별 soft 안내
+    out_p = gen.generate("보험료는?", [_scored()])
+    assert out_p.answer == soft_no_evidence_answer("보험료는?")
+    assert "보험료" in (out_p.answer or "")
 
 
 def test_grounded_answer_not_normalized():

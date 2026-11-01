@@ -25,18 +25,35 @@ SEX_QUERY_LABELS = {
     "female": "여성",
 }
 
-# 상품 설명서에 '실손 통원'이 없어도 카드에 규칙 라벨을 걸기 위한 동의어.
-# 사용자가 쓴 문장이 아니라 문서에 이미 있는 담보명만.
+# 실손(indemnity) 문서용 동의어. 정액(진단비·입원일당 등)은 여기 넣지 않음.
 COVERAGE_ALIASES = {
-    "실손 통원": ["통원의료비", "상해통원", "질병통원", "외래"],
-    "실손 입원": ["입원의료비", "상해입원", "질병입원", "입원일당"],
-    "실손 검사": ["골절진단비", "화상진단비", "진단비", "검사비"],
+    "실손 통원": ["통원의료비", "상해통원", "질병통원"],
+    "실손 입원": ["입원의료비", "상해입원", "질병입원"],
+    "실손 검사": ["검사비"],
     "상해 관련 실손": ["일반상해", "상해의료비", "교통상해", "상해후유장해"],
 }
 
-# RESULT에 보여 줄 비교 상품 수. 후보는 더 모아 점수·다양성으로 고른다.
+# RESULT에 보여 줄 비교 상품 수. 후보는 더 모아 점수·사다리로 고른다.
 PRODUCT_COMPARE_CAP = 2
 PRODUCT_CANDIDATE_CAP = 8
+
+# 상품 매칭 정확도 고지 (거절 없음 · 100% 비보장)
+PRODUCT_MATCH_DISCLAIMER = (
+    "이 안내는 입력·보유 요약서 기준의 참고용 매칭입니다. "
+    "보장·보험료·가입 가능 여부를 100% 보장하지 않으며, "
+    "약관·설계·상담이 우선입니다."
+)
+PRODUCT_MATCH_SIMILAR_NOTE = (
+    "실손과 동일한 문서가 부족해, 걱정하신 비용 부담에 "
+    "가장 가까운 유형으로 골랐습니다."
+)
+
+_CARE_SILSON = frozenset({"yes", "no", "unknown"})
+_CARE_INTENSITY = frozenset({"rare", "sometimes", "frequent", "unknown"})
+_CARE_PAIN = frozenset({
+    "outpatient", "tests_noncovered", "inpatient", "unknown",
+})
+_TIER_RANK = {"L0": 0, "L1": 1, "L2": 2, "L3": 3, "L4": 4}
 
 
 @dataclass
@@ -74,6 +91,9 @@ class GuidanceResult:
     kosis: dict = field(default_factory=dict)
     public_stats: dict = field(default_factory=dict)
     recommendation_rationale: dict = field(default_factory=dict)
+    coverage_priority: dict = field(default_factory=dict)
+    cost_pattern: dict = field(default_factory=dict)
+    product_match_meta: dict = field(default_factory=dict)
     guard_flags: list[str] = field(default_factory=list)
     abstained: bool = False
     abstain_reason: str | None = None
@@ -122,10 +142,15 @@ class GuidanceService:
               symptom_codes: list[str] | None = None,
               age_band: str | None = None,
               sex: str | None = None,
+              existing_silson: str | None = None,
+              care_intensity: str | None = None,
+              cost_pain_type: str | None = None,
               auth=None) -> GuidanceResult:
         # 코드가 있으면 자유문은 버린다. 없으면 마스킹 후 사전 매칭만 한다.
         # LLM·프로필에는 원문을 넣지 않는다.
         # age_band·sex는 닫힌 검색 질의에만 쓰고 설명 문장에는 쓰지 않는다.
+        care = _normalize_care_slots(
+            existing_silson, care_intensity, cost_pain_type)
         if symptom_codes:
             rules = run_rules(
                 "", occupation=occupation, concern=concern,
@@ -137,7 +162,8 @@ class GuidanceService:
                 concerns=concerns)
         if rules.abstained:
             return GuidanceResult(
-                profile=_profile(rules, age_band=age_band, sex=sex),
+                profile=_profile(
+                    rules, age_band=age_band, sex=sex, care=care),
                 areas=[], coverages=[], explanation="",
                 abstained=True, abstain_reason=rules.abstain_reason,
                 raw_stored=False)
@@ -147,7 +173,8 @@ class GuidanceService:
         if self._pipeline is not None and auth is not None:
             citations, products = self._lookup_evidence(
                 rules, auth,
-                occupation=occupation, age_band=age_band, sex=sex)
+                occupation=occupation, age_band=age_band, sex=sex,
+                care=care)
 
         ref_stats = self._lookup_stats(rules, age_band=age_band, sex=sex)
         codes = [h.code for h in rules.symptoms]
@@ -161,7 +188,7 @@ class GuidanceService:
 
         # 영역 카드 KCD가 증상 ref에 없어도 통계를 보강한다.
         area_kcds: list[str] = []
-        for _aid, spec, _linked in match_area_specs(codes):
+        for _aid, spec, _linked, _score in match_area_specs(codes):
             for k in spec.get("kcds") or []:
                 if k and k not in area_kcds:
                     area_kcds.append(str(k))
@@ -182,21 +209,12 @@ class GuidanceService:
         kosis = build_kosis_bundle(
             [c.get("id") or "" for c in area_cards],
             age_band, sex)
-        # 영역 카드에 이용·비용 맥락(상병 흔함과 분리된 보조 슬롯)
-        from harag.guidance.kosis_nhis import AREA_SURGERY_LINKS
-        care = kosis.get("care_context") or {}
-        if care and not care.get("missing"):
-            for card in area_cards:
-                card["care_context"] = care
-        surg_nhi = kosis.get("surgery_nhi") or {}
-        if surg_nhi and not surg_nhi.get("missing"):
-            for card in area_cards:
-                if card.get("id") in AREA_SURGERY_LINKS:
-                    card["surgery_context"] = surg_nhi
+        # 이용·비용·수술은 카드가 아니라 cost_pattern(걱정 블록)에만 둔다.
+        # 298은 보조 슬롯 — 연령 게이트 통과·non-missing만 카드에 보관(UI는 details).
         disease_by = kosis.get("disease_298_by_area") or {}
         for card in area_cards:
             dctx = disease_by.get(card.get("id") or "") or {}
-            if dctx:
+            if dctx and not dctx.get("missing"):
                 card["disease_298"] = dctx
         insurance_bridge = build_insurance_bridge(
             area_cards, rules.coverages,
@@ -205,9 +223,34 @@ class GuidanceService:
         from harag.guidance.rationale import (
             build_public_stats_panel, build_recommendation_rationale,
         )
+        from harag.guidance.coverage_priority import (
+            build_coverage_priority, build_cost_pattern,
+        )
         public_stats = build_public_stats_panel(
             kosis, area_cards,
             occupation=rules.occupation, age_band=age_band, sex=sex)
+        cost_pattern = build_cost_pattern(
+            area_cards, kosis, concerns=rules.concerns)
+        coverage_priority = build_coverage_priority(
+            concerns=rules.concerns,
+            occupation=rules.occupation,
+            area_cards=area_cards,
+            age_band=age_band,
+            sex=sex)
+        from harag.guidance.product_match import enrich_product_presentation
+        from harag.guidance.fit_reasons import attach_fit_reasons
+        products = enrich_product_presentation(products, coverage_priority)
+        web_browser = getattr(self._pipeline, "_web_browser", None) \
+            if self._pipeline is not None else None
+        products = attach_fit_reasons(
+            products, rules,
+            llm=self._llm,
+            web_browser=web_browser,
+            age_band=age_band,
+            sex=sex,
+            care=care,
+        )
+        match_meta = _build_product_match_meta(products, rules.concerns)
         recommendation_rationale = build_recommendation_rationale(
             rules, products=products, public_stats=public_stats)
         why_raw, _caution_unused = self._explain(
@@ -223,9 +266,15 @@ class GuidanceService:
         why, why_flags = guard_text(
             why_raw, allowed, self._masker, catalog_labels=catalog,
             keep_phrases=keep)
-        why_body, disclaimer = split_disclaimer(why)
+        why_body, _disc_from_why = split_disclaimer(why)
+        # 의료 면책 + 매칭 100% 비보장 고지를 항상 함께 둔다.
+        disclaimer = " ".join(
+            x for x in (DISCLAIMER, match_meta.get("disclaimer") or "")
+            if x
+        ).strip() or DISCLAIMER
         return GuidanceResult(
-            profile=_profile(rules, age_band=age_band, sex=sex),
+            profile=_profile(
+                rules, age_band=age_band, sex=sex, care=care),
             areas=[{"label": a.label, "source": a.source,
                     "confidence": a.confidence,
                     "matched": a.matched, "selected": a.selected}
@@ -247,6 +296,9 @@ class GuidanceService:
             kosis=kosis,
             public_stats=public_stats,
             recommendation_rationale=recommendation_rationale,
+            coverage_priority=coverage_priority,
+            cost_pattern=cost_pattern,
+            product_match_meta=match_meta,
             guard_flags=why_flags,
             raw_stored=False,
             disclaimer=disclaimer,
@@ -332,8 +384,10 @@ class GuidanceService:
         ]
         product_clause = (
             "## 비교할 상품 2개 섹션에서는 사실에 적힌 상품만 이름으로 언급하고, "
-            "상품마다 1~2문장으로 「{상품명}은 {matched 담보}이 매치되며, "
+            "상품마다 1~2문장으로 「**{상품명}**은 {matched 담보}이 매치되며, "
             "{summary 핵심}입니다」 패턴으로 적어라. "
+            "상품명은 반드시 **굵게**(마크다운 **이름**) 감싸라. "
+            "상품 문단과 다음 상품 문단 사이에는 빈 줄을 하나 넣어라. "
             "왜 골랐는지가 한눈에 들어오게, 전문 용어·가입 권유 없이 쉽게 써라. "
             "이 섹션 밖에는 상품명을 쓰지 마라. "
             if product_names else
@@ -384,6 +438,7 @@ class GuidanceService:
             occupation: str | None = None,
             age_band: str | None = None,
             sex: str | None = None,
+            care: dict | None = None,
     ) -> tuple[list[str], list[dict]]:
         coverages = rules.coverages
         query = closed_product_query(coverages, occupation, age_band, sex)
@@ -403,12 +458,16 @@ class GuidanceService:
         products = _enrich_matched_from_codes(products, coverages)
         products = _select_compare_products(
             products, coverages,
-            occupation=rules.occupation, concerns=rules.concerns)
+            occupation=rules.occupation, concerns=rules.concerns,
+            care=care)
+        from harag.guidance.product_match import normalize_matched_tags
+        products = normalize_matched_tags(products)
         for p in products:
             p["snippet"] = ""
             p.pop("score", None)
             p.pop("_fit", None)
             p.pop("_library_fill", None)
+            p.pop("_tier_rank", None)
         return citations, products
 
 
@@ -609,13 +668,117 @@ def _enrich_matched_from_codes(
     return out
 
 
+_SPECIALTY_LINES = frozenset({"cancer", "life"})
+_SPECIALTY_SIGNAL_RE = re.compile(r"암|종양|중대질환|항암|종신|사망보장")
+
+
+def _has_specialty_signal(
+        coverages: list[CoverageHit], concerns: list[str] | None) -> bool:
+    """암·종신 특화 상품을 열 만한 입력 신호가 있는지."""
+    hay = " ".join(
+        f"{c.code} {c.label}" for c in (coverages or [])
+    )
+    if _SPECIALTY_SIGNAL_RE.search(hay):
+        return True
+    # tests(장기 치료)만으로는 암상품을 열지 않음 — 신호와 AND 필요
+    return False
+
+
+def _normalize_care_slots(
+        existing_silson: str | None,
+        care_intensity: str | None,
+        cost_pain_type: str | None) -> dict:
+    sil = (existing_silson or "").strip().lower() or "unknown"
+    inten = (care_intensity or "").strip().lower() or "unknown"
+    pain = (cost_pain_type or "").strip().lower() or "unknown"
+    if sil not in _CARE_SILSON:
+        sil = "unknown"
+    if inten not in _CARE_INTENSITY:
+        inten = "unknown"
+    if pain not in _CARE_PAIN:
+        pain = "unknown"
+    return {
+        "existing_silson": sil,
+        "care_intensity": inten,
+        "cost_pain_type": pain,
+    }
+
+
+def _target_natures(concerns: list[str] | None) -> set[str]:
+    """걱정 → 해결 비용 성격 (실손·혼합 우선)."""
+    cs = set(concerns or [])
+    if "outpatient" in cs or "inpatient" in cs:
+        return {"indemnity", "mixed"}
+    if "tests" in cs:
+        return {"indemnity", "mixed", "lump_sum"}
+    return {"indemnity", "mixed"}
+
+
+def _axis_overlap(p: dict, coverages: list[CoverageHit],
+                  concerns: list[str] | None) -> bool:
+    cov_codes = set(p.get("coverage_codes") or [])
+    want = {c.code for c in (coverages or []) if c.code}
+    cs = set(concerns or [])
+    if cs & {"outpatient", "inpatient", "tests"}:
+        for key in ("outpatient", "inpatient", "tests", "injury", "surgery"):
+            if key in cs and key in cov_codes:
+                return True
+        if want & cov_codes:
+            return True
+        # 병원비·입원 걱정이면 통원/입원 축만 있어도 유사
+        if "outpatient" in cs and (
+                "outpatient" in cov_codes or "inpatient" in cov_codes):
+            return True
+        if "inpatient" in cs and (
+                "inpatient" in cov_codes or "surgery" in cov_codes):
+            return True
+    return bool(want & cov_codes)
+
+
+def _has_silson_signal(p: dict) -> bool:
+    blob = _product_blob(p)
+    cost = (p.get("cost_nature") or "").strip()
+    if cost in ("indemnity", "mixed"):
+        return True
+    return bool(re.search(r"실손|통원의료비|입원의료비", blob))
+
+
+def _assign_match_tier(
+        p: dict, coverages: list[CoverageHit],
+        concerns: list[str] | None) -> str:
+    """L0(직접 해결) … L4(최후 유사). 거절 없이 항상 티어 부여."""
+    cost = (p.get("cost_nature") or "").strip()
+    line = (p.get("product_line") or "").strip()
+    targets = _target_natures(concerns)
+    overlap = _axis_overlap(p, coverages, concerns)
+    cs = set(concerns or [])
+    hospital = bool(cs & {"outpatient", "inpatient"})
+
+    if cost in targets and overlap:
+        return "L0"
+    if cost == "mixed" or (cost == "indemnity" and not overlap):
+        return "L1"
+    if _has_silson_signal(p) and cost != "lump_sum":
+        return "L1"
+    if line == "health" and cost == "lump_sum" and (
+            overlap or hospital):
+        return "L2"
+    if line == "health":
+        return "L3"
+    return "L4"
+
+
 def _product_fit_score(
         p: dict, coverages: list[CoverageHit],
-        occupation: str | None, concerns: list[str] | None) -> float:
+        occupation: str | None, concerns: list[str] | None,
+        *, specialty_ok: bool = False,
+        care: dict | None = None) -> float:
     labels = [c.label for c in coverages]
     codes = {c.code for c in coverages}
     matched = p.get("matched_coverages") or []
     cov_codes = set(p.get("coverage_codes") or [])
+    line = (p.get("product_line") or "").strip()
+    cost = (p.get("cost_nature") or "").strip()
     score = float(p.get("score") or 0) * 5.0
     if not p.get("_library_fill"):
         score += 10.0  # 검색 히트가 공용 폴백보다 우선
@@ -623,17 +786,52 @@ def _product_fit_score(
     score += 1.5 * len(codes & cov_codes)
     blob = _product_blob(p)
     concern_set = set(concerns or [])
+    care = care or {}
+
+    # 암·종신: 병원비·일반 증상에는 사실상 탈락
+    if line in _SPECIALTY_LINES and not specialty_ok:
+        score -= 25.0
+
     if "inpatient" in concern_set:
         if any(k in blob for k in ("입원", "수술", "실손 입원", "inpatient")):
             score += 3.0
-        if (p.get("cost_nature") or "") in ("mixed", "indemnity"):
+        if cost in ("mixed", "indemnity"):
             score += 2.0
     if "tests" in concern_set:
-        if any(k in blob for k in ("장기", "진단", "검사", "암", "tests")):
-            score += 2.5
-    if "outpatient" in concern_set:
-        if any(k in blob for k in ("통원", "외래", "실손 통원", "outpatient")):
+        # 「암」단독 키워드로 cancer 상품을 끌어올리지 않음
+        if any(k in blob for k in ("장기", "진단", "검사", "tests")):
             score += 2.0
+        if specialty_ok and line == "cancer" and "암" in blob:
+            score += 2.0
+    if "outpatient" in concern_set:
+        # 병원비 부담 → 실손·혼합 우선 (정액은 유사 후보로만)
+        if cost in ("mixed", "indemnity"):
+            score += 4.0
+        elif line == "health" and cost == "lump_sum":
+            score += 0.5
+        if "실손 통원" in matched or "outpatient" in cov_codes:
+            if cost in ("mixed", "indemnity"):
+                score += 1.5
+    # Tier A 슬롯: 랭킹 가중만 (추천 거절 없음)
+    sil = care.get("existing_silson") or "unknown"
+    if sil in ("no", "unknown") and cost in ("mixed", "indemnity"):
+        score += 2.0
+    if sil == "yes" and cost == "lump_sum" and line == "health":
+        score += 0.8  # 실손 보유 시 정액 보완 후보
+    inten = care.get("care_intensity") or "unknown"
+    if inten == "frequent" and (
+            cost in ("mixed", "indemnity") or "outpatient" in cov_codes):
+        score += 1.5
+    pain = care.get("cost_pain_type") or "unknown"
+    if pain == "outpatient" and (
+            cost in ("mixed", "indemnity") or "outpatient" in cov_codes):
+        score += 1.0
+    if pain == "inpatient" and (
+            "inpatient" in cov_codes or cost in ("mixed", "indemnity")):
+        score += 1.0
+    if pain == "tests_noncovered" and (
+            "tests" in cov_codes or "검사" in blob):
+        score += 1.0
     if occupation == "field":
         if any(k in blob for k in ("상해", "injury", "재해", "운전")):
             score += 2.5
@@ -644,59 +842,193 @@ def _product_fit_score(
             score += 1.5
         if "injury" in cov_codes or "outpatient" in cov_codes:
             score += 0.5
-    if (p.get("cost_nature") or "") == "mixed":
+    if cost == "mixed":
         score += 1.0
+    if line == "health":
+        score += 0.5
     return score
 
 
-def _nature_bucket(p: dict) -> str:
-    cost = (p.get("cost_nature") or "").strip()
-    if cost in ("mixed", "indemnity"):
-        return "indemnity_side"
-    if cost == "lump_sum":
-        return "lump_side"
-    line = (p.get("product_line") or "").strip()
-    if line == "indemnity":
-        return "indemnity_side"
-    return "other"
+def _selection_reason_line(
+        p: dict, coverages: list[CoverageHit],
+        concerns: list[str] | None,
+        *, care: dict | None = None) -> str:
+    """해결/유사 논리의 결정론 추천 이유."""
+    tier = str(p.get("match_tier") or "L4")
+    quality = str(p.get("match_quality") or "similar")
+    clabs = [CONCERNS[c] for c in (concerns or []) if c in CONCERNS]
+    concern_bit = "·".join(clabs) if clabs else "선택하신 걱정"
+    care = care or {}
+    sil = care.get("existing_silson") or "unknown"
+
+    if quality == "direct" or tier in ("L0", "L1"):
+        if "outpatient" in (concerns or []) or "inpatient" in (concerns or []):
+            base = (
+                f"걱정 「{concern_bit}」→ 실제 의료비 보전(실손·혼합) "
+                "성격이라 골랐어요."
+            )
+        else:
+            base = (
+                f"걱정 「{concern_bit}」과 맞는 보장 축·상품 성격이라 "
+                "골랐어요."
+            )
+        if sil == "yes":
+            base += " 기존 실손이 있으면 한도·중복을 함께 확인하세요."
+        return base
+
+    # L2+ 유사
+    if "outpatient" in (concerns or []):
+        return (
+            f"걱정 「{concern_bit}」 기준으로, 보유 요약서 중 "
+            "통원·의료비 축이 가장 가까운 유사 후보로 골랐어요."
+        )
+    if "inpatient" in (concerns or []):
+        return (
+            f"걱정 「{concern_bit}」 기준으로, 입원·수술 축이 "
+            "가장 가까운 유사 후보로 골랐어요."
+        )
+    return (
+        f"걱정 「{concern_bit}」에 가장 가까운 유사 요약서로 골랐어요."
+    )
+
+
+def _build_product_match_meta(
+        products: list[dict], concerns: list[str] | None) -> dict:
+    tiers = [
+        str(p.get("match_tier") or "")
+        for p in (products or []) if p.get("match_tier")
+    ]
+    max_tier = "L0"
+    if tiers:
+        max_tier = max(tiers, key=lambda t: _TIER_RANK.get(t, 9))
+    similar = any(
+        (p.get("match_quality") or "") == "similar"
+        or _TIER_RANK.get(str(p.get("match_tier") or ""), 9) >= 2
+        for p in (products or [])
+    )
+    note = ""
+    if similar and products:
+        if "outpatient" in (concerns or []):
+            note = (
+                "실손과 동일한 문서가 부족해, 병원비 부담에 "
+                "가장 가까운 유형으로 골랐습니다."
+            )
+        else:
+            note = PRODUCT_MATCH_SIMILAR_NOTE
+    return {
+        "max_tier": max_tier if products else "",
+        "match_quality": "similar" if similar else "direct",
+        "disclaimer": PRODUCT_MATCH_DISCLAIMER,
+        "similar_note": note,
+    }
 
 
 def _select_compare_products(
         products: list[dict], coverages: list[CoverageHit],
         occupation: str | None = None,
-        concerns: list[str] | None = None) -> list[dict]:
-    """점수 + 비용성격 다양성으로 비교 상품 2개를 고른다."""
+        concerns: list[str] | None = None,
+        care: dict | None = None) -> list[dict]:
+    """유사 매칭 사다리로 항상 최대 2개를 채운다 (거절 없음)."""
     if not products:
         return []
+    specialty_ok = _has_specialty_signal(coverages, concerns)
+    concern_set = set(concerns or [])
+    hospital_cost = bool(concern_set & {"outpatient", "inpatient"})
     scored: list[dict] = []
     for p in products:
         row = dict(p)
+        line = (row.get("product_line") or "").strip()
+        if line in _SPECIALTY_LINES and not specialty_ok:
+            continue
         row["_fit"] = _product_fit_score(
-            row, coverages, occupation, concerns)
+            row, coverages, occupation, concerns,
+            specialty_ok=specialty_ok, care=care)
+        tier = _assign_match_tier(row, coverages, concerns)
+        row["match_tier"] = tier
+        row["_tier_rank"] = _TIER_RANK.get(tier, 9)
+        row["match_quality"] = (
+            "direct" if tier in ("L0", "L1") else "similar"
+        )
         scored.append(row)
+    if not scored:
+        # 전부 specialty여서 비면 health만 다시 — 그래도 비우지 않음
+        for p in products:
+            line = (p.get("product_line") or "").strip()
+            if line in _SPECIALTY_LINES and not specialty_ok:
+                continue
+            row = dict(p)
+            row["_fit"] = _product_fit_score(
+                row, coverages, occupation, concerns,
+                specialty_ok=False, care=care)
+            tier = _assign_match_tier(row, coverages, concerns)
+            row["match_tier"] = tier
+            row["_tier_rank"] = _TIER_RANK.get(tier, 9)
+            row["match_quality"] = (
+                "direct" if tier in ("L0", "L1") else "similar"
+            )
+            scored.append(row)
+    if not scored:
+        # 최후: specialty만 있어도 유사로 채움 (거절 금지)
+        for p in products:
+            row = dict(p)
+            row["_fit"] = _product_fit_score(
+                row, coverages, occupation, concerns,
+                specialty_ok=True, care=care)
+            row["match_tier"] = "L4"
+            row["_tier_rank"] = 4
+            row["match_quality"] = "similar"
+            scored.append(row)
     scored.sort(
-        key=lambda p: (p.get("_fit") or 0, p.get("score") or 0),
-        reverse=True)
+        key=lambda p: (
+            p["_tier_rank"] if "_tier_rank" in p else 9,
+            -(p.get("_fit") or 0),
+            -(float(p.get("score") or 0)),
+        ))
     picked: list[dict] = []
-    used_buckets: set[str] = set()
+    used_ids: set[str] = set()
+    used_insurers: set[str] = set()
+
+    def _try_add(p: dict, *, prefer_new_insurer: bool) -> bool:
+        if len(picked) >= PRODUCT_COMPARE_CAP:
+            return False
+        doc_id = str(p.get("document_id") or "")
+        if doc_id and doc_id in used_ids:
+            return False
+        insurer = str(p.get("insurer") or "").strip()
+        if prefer_new_insurer and insurer and insurer in used_insurers:
+            return False
+        picked.append(p)
+        if doc_id:
+            used_ids.add(doc_id)
+        if insurer:
+            used_insurers.add(insurer)
+        return True
+
+    # 1차: tier·점수 순. 병원비 걱정이면 nature 교차 강제 없음.
     for p in scored:
         if len(picked) >= PRODUCT_COMPARE_CAP:
             break
-        bucket = _nature_bucket(p)
-        if picked and bucket in used_buckets and bucket != "other":
-            # 같은 성격만 쌓이면 다음 후보를 본다. 후보가 부족하면 아래에서 채움.
-            continue
-        picked.append(p)
-        used_buckets.add(bucket)
+        if hospital_cost:
+            _try_add(p, prefer_new_insurer=bool(picked))
+        else:
+            # 비병원비: 같은 product_line 중복만 약하게 피함
+            line = (p.get("product_line") or "").strip()
+            if picked and line and line not in ("", "other"):
+                if any((x.get("product_line") or "") == line for x in picked):
+                    if line in _SPECIALTY_LINES:
+                        continue
+            _try_add(p, prefer_new_insurer=False)
+
+    # 2차: 부족하면 보험사 중복 허용하며 채움
     if len(picked) < PRODUCT_COMPARE_CAP:
-        ids = {p.get("document_id") for p in picked}
         for p in scored:
             if len(picked) >= PRODUCT_COMPARE_CAP:
                 break
-            if p.get("document_id") in ids:
-                continue
-            picked.append(p)
-            ids.add(p.get("document_id"))
+            _try_add(p, prefer_new_insurer=False)
+
+    for p in picked:
+        p["selection_reason"] = _selection_reason_line(
+            p, coverages, concerns, care=care)
     return picked[:PRODUCT_COMPARE_CAP]
 
 
@@ -743,8 +1075,10 @@ def _attach_brochure_profiles(pipeline, products: list[dict]) -> list[dict]:
 
 
 def _profile(rules: RuleResult, age_band: str | None = None,
-             sex: str | None = None) -> dict:
+             sex: str | None = None,
+             care: dict | None = None) -> dict:
     sex_n = sex if sex in SEX_QUERY_LABELS else None
+    care = care or _normalize_care_slots(None, None, None)
     return {
         "masked_preview": "",
         "symptoms": _symptom_items(rules),
@@ -758,6 +1092,9 @@ def _profile(rules: RuleResult, age_band: str | None = None,
         "age_label": AGE_QUERY_LABELS.get(age_band or ""),
         "sex": sex_n,
         "sex_label": SEX_QUERY_LABELS.get(sex_n or ""),
+        "existing_silson": care.get("existing_silson") or "unknown",
+        "care_intensity": care.get("care_intensity") or "unknown",
+        "cost_pain_type": care.get("cost_pain_type") or "unknown",
     }
 
 
@@ -985,41 +1322,25 @@ def _insurance_lines(rules: RuleResult) -> list[str]:
 
 
 def _product_why_line(p: dict) -> str:
-    """비교 상품 한 줄: '{이름}은 {담보}이 매치되며, {요약}입니다.'"""
+    """비교 상품 한 줄: 선정 이유 + 담보 매칭."""
     name = (p.get("name") or p.get("title") or "").strip()
     if not name:
         return ""
+    insurer = str(p.get("insurer") or "").strip()
+    bold_name = f"**{insurer} {name}**" if insurer else f"**{name}**"
+    reason = str(p.get("selection_reason") or "").strip()
     kinds = [str(k).strip() for k in (p.get("matched_coverages") or []) if str(k).strip()]
-    summary = (p.get("summary") or "").strip()
-    if summary:
-        for sep in ("다. ", "요. "):
-            if sep in summary:
-                summary = summary.split(sep, 1)[0] + sep[0]
-                break
-        if len(summary) > 110:
-            summary = summary[:108].rstrip("., ") + "…"
-        if summary.endswith("입니다") or summary.endswith("습니다"):
-            pass
-        elif summary.endswith("다") or summary.endswith("요"):
-            pass
-        else:
-            summary = summary.rstrip(". ") + "입니다"
-    else:
-        cost = (
-            str(p.get("cost_nature_label") or p.get("cost_nature") or "")
-            .strip()
-        )
-        summary = (
-            f"{cost} 성격으로 살펴볼 수 있는 상품입니다"
-            if cost else
-            "선택한 보장과 맞춰 볼 수 있는 상품요약서입니다"
-        )
+    if reason and kinds:
+        joined = _join_ko_list(kinds)
+        return f"{bold_name}: {reason} 요약서에서 {joined} 축을 확인할 수 있습니다."
+    if reason:
+        return f"{bold_name}: {reason}"
     if kinds:
         joined = _join_ko_list(kinds)
         if "보장" not in joined:
             joined = f"{joined} 보장"
-        return f"{name}은 {joined}이 매치되며, {summary}"
-    return f"{name}은 {summary}"
+        return f"{bold_name}은 {joined}이 매치됩니다."
+    return f"{bold_name}은 선택하신 증상·걱정과 맞춰 볼 수 있는 상품요약서입니다."
 
 
 def _why_fallback(rules: RuleResult,
@@ -1064,11 +1385,13 @@ def _why_fallback(rules: RuleResult,
         lines.append(
             "지금은 비교할 공용 설명서가 없습니다. "
             "보장 유형만 참고해 주세요.")
+    product_paras: list[str] = []
     for p in picked:
         line = _product_why_line(p)
         if line:
-            lines.append(line)
-    return "\n".join(lines)
+            product_paras.append(line)
+    lines.append("\n\n".join(product_paras) if product_paras else "")
+    return "\n".join(lines).rstrip() + ("\n" if product_paras else "")
 
 
 _DOC_MARKER_RE = re.compile(r"\[\s*문서\s*\d+(?:\s*,\s*\d+)*\s*\]")

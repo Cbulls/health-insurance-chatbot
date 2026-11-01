@@ -92,6 +92,9 @@ class AssessRequest(BaseModel):
     concerns: list[str] = Field(default_factory=list)
     age_band: Optional[str] = None
     sex: Optional[str] = None
+    existing_silson: Optional[str] = None
+    care_intensity: Optional[str] = None
+    cost_pain_type: Optional[str] = None
 
 
 class RefCondition(BaseModel):
@@ -138,6 +141,9 @@ class GuidanceRequest(BaseModel):
     age_band: Optional[str] = None
     sex: Optional[str] = None
     symptoms: list[str] = Field(default_factory=list)
+    existing_silson: Optional[str] = None
+    care_intensity: Optional[str] = None
+    cost_pain_type: Optional[str] = None
 
 
 class PurgeRequest(BaseModel):
@@ -272,11 +278,50 @@ class RecommendationRationale(BaseModel):
     missing_notes: list[str] = Field(default_factory=list)
 
 
+class CoveragePriorityItem(BaseModel):
+    rank: int = 0
+    axis: str = ""
+    nature: str = ""
+    title: str = ""
+    reason: str = ""
+    check_points: list[str] = Field(default_factory=list)
+    rule_id: str = ""
+
+
+class CoveragePriority(BaseModel):
+    selection_basis: str = ""
+    care_pattern: str = "unknown"
+    care_pattern_label: str = ""
+    inpatient_share_pct: float | None = None
+    items: list[CoveragePriorityItem] = Field(default_factory=list)
+    missing_notes: list[str] = Field(default_factory=list)
+
+
+class CostPatternLine(BaseModel):
+    title: str = ""
+    text: str = ""
+    source: str = ""
+    missing: bool = False
+
+
+class CostPattern(BaseModel):
+    title: str = "비용은 어떻게 나갈까요?"
+    care_pattern: str = "unknown"
+    care_pattern_label: str = ""
+    inpatient_share_pct: float | None = None
+    lines: list[CostPatternLine] = Field(default_factory=list)
+    missing_notes: list[str] = Field(default_factory=list)
+    note: str = ""
+
+
 class AreaCard(BaseModel):
     id: str
     title: str = ""
     clinical_review: str = ""
     linked_symptoms: list[str] = Field(default_factory=list)
+    linked_count: int = 0
+    selected_symptom_count: int = 0
+    match_score: float = 0.0
     candidate_groups: list[CandidateGroup] = Field(default_factory=list)
     kcds: list[str] = Field(default_factory=list)
     commonness: CommonnessBlock = Field(default_factory=CommonnessBlock)
@@ -304,21 +349,51 @@ class InsuranceBridge(BaseModel):
     kosis_source: str = ""
 
 
+class ProductInputLink(BaseModel):
+    axis: str = ""
+    nature: str = ""
+    label: str = ""
+    status: str = ""
+    text: str = ""
+
+
+class ProductFitReason(BaseModel):
+    aspect: str = ""
+    text: str = ""
+
+
 class ProductCard(BaseModel):
     document_id: str = ""
-    title: str
+    title: str = ""
     citation_label: str = ""
     snippet: str = ""
     matched_coverages: list[str] = Field(default_factory=list)
+    matched_axes: list[str] = Field(default_factory=list)
+    input_links: list[ProductInputLink] = Field(default_factory=list)
+    fit_reasons: list[ProductFitReason] = Field(default_factory=list)
     scope: str = "personal"
     name: str = ""
     product_line: str = ""
     product_line_label: str = ""
     doc_kind_label: str = ""
+    cost_nature: str = ""
     cost_nature_label: str = ""
     summary: str = ""
+    short_summary: str = ""
+    watch_points: list[str] = Field(default_factory=list)
+    premium_note: str = ""
     insurer: str = ""
     source_url: str = ""
+    selection_reason: str = ""
+    match_tier: str = ""
+    match_quality: str = ""
+
+
+class ProductMatchMeta(BaseModel):
+    max_tier: str = ""
+    match_quality: str = ""
+    disclaimer: str = ""
+    similar_note: str = ""
 
 
 class GuidanceResponse(BaseModel):
@@ -335,6 +410,11 @@ class GuidanceResponse(BaseModel):
     public_stats: PublicStatsPanel = Field(default_factory=PublicStatsPanel)
     recommendation_rationale: RecommendationRationale = Field(
         default_factory=RecommendationRationale)
+    coverage_priority: CoveragePriority = Field(
+        default_factory=CoveragePriority)
+    cost_pattern: CostPattern = Field(default_factory=CostPattern)
+    product_match_meta: ProductMatchMeta = Field(
+        default_factory=ProductMatchMeta)
     explanation: str = ""
     explanation_why: str = ""
     explanation_caution: str = ""

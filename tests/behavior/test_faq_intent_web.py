@@ -301,3 +301,59 @@ def test_embedding_failure_product_fact_abstains():
     assert result.abstained
     assert result.abstain_reason == "embedding_unavailable"
     assert result.answer is None
+
+
+def test_surrender_faq_match():
+    load_faq.cache_clear()
+    hit = match_faq("해약환급금이 없는 형은 어떤 의미인가요?")
+    assert hit is not None
+    assert hit.id == "surrender_none"
+    assert "미지급" in hit.blurb or "환급" in hit.blurb
+
+
+def test_pipeline_surrender_faq_short_circuit_with_docs():
+    """문서 선택 중에도 해약환급 개념 질문은 FAQ로 바로 답한다."""
+    from harag.api.pipeline import QueryPipelineImpl
+    from harag.contracts.boundaries import AuthContext
+    from harag.generation.generator import AnswerGenerator
+
+    load_faq.cache_clear()
+
+    class BoomRetriever:
+        def retrieve(self, *a, **k):
+            raise AssertionError("concept FAQ short-circuit must skip retrieve")
+
+    pipe = QueryPipelineImpl(
+        retriever=BoomRetriever(),
+        generator=AnswerGenerator(min_score=0.15),
+        web_browser=None,
+    )
+    auth = AuthContext(user_id="t", acl_tags=frozenset({"owner:t"}))
+    result = pipe._answer_sync(
+        "해약환급금이 없는 형은 어떤 의미인가요?",
+        auth, None,
+        document_id="doc-meritz",
+        document_ids=["doc-meritz"],
+        match_context=None,
+    )
+    assert not result.abstained
+    assert result.answer
+    assert "해약" in result.answer or "환급" in result.answer
+    assert "고른 설명서" in result.answer or "요약서" in result.answer
+    assert result.context_chunks
+    assert result.context_chunks[0].chunk.meta.chunk_id == "faq-context"
+
+
+def test_soft_no_evidence_answer_topic_surrender():
+    from harag.security.output_guard import (
+        SOFT_NO_EVIDENCE_ANSWER,
+        soft_no_evidence_answer,
+    )
+
+    text = soft_no_evidence_answer("해약환급금이 없는 형은 어떤 의미인가요?")
+    assert "해약환급금" in text or "미지급형" in text
+    assert "책임개시일" not in text
+    assert text != SOFT_NO_EVIDENCE_ANSWER
+
+    default = soft_no_evidence_answer("통원 담보 한도는?")
+    assert default == SOFT_NO_EVIDENCE_ANSWER

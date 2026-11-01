@@ -46,11 +46,16 @@ const askSuggest = document.getElementById("askSuggest");
 const askCopy = document.getElementById("askCopy");
 const emptyStateCopy = document.getElementById("emptyStateCopy");
 
-const DOC_ASK_SUGGESTS = [
-  "보장 개시일과 면책 기간은 어떻게 되나요?",
-  "통원·입원 담보 차이를 알려주세요.",
-  "해약환급금이 없는 형은 어떤 의미인가요?",
+/** 설명서 추천 질문 — 11개 카탈로그 공통, 카탈로그만으로 항상 답 가능. */
+const DOC_ASK_SUGGEST_CANDIDATES = [
+  "이 상품은 어떤 종류의 보험인가요?",
+  "요약서에 안내된 주요 보장·특약은 무엇인가요?",
+  "갱신·해약환급·고지 관련으로 알아둘 점은?",
 ];
+
+function suggestsForDoc(_doc) {
+  return DOC_ASK_SUGGEST_CANDIDATES.slice();
+}
 
 const RESULT_CHAT_SUGGESTS = [
   "이 상품들이 증상과 어떻게 연결되나요?",
@@ -162,11 +167,13 @@ function openAskForDoc(d) {
     document_id: d.document_id,
     display_name: d.display_name || d.name || d.title || d.filename || "",
     insurer: d.insurer || "",
+    summary: d.summary || d.short_summary || "",
+    filename: d.filename || "",
   };
   conversationId = newConversationId();
   resetAskMessages();
   renderAskDocBar();
-  renderAskSuggest(DOC_ASK_SUGGESTS);
+  renderAskSuggest(suggestsForDoc(askDoc));
   setBrochurePanelOpen(false);
   if (policyPanel) policyPanel.classList.add("hidden");
   interview.classList.add("hidden");
@@ -214,6 +221,9 @@ const selectedConcerns = new Set();
 let selectedOcc = null;
 let selectedAge = null;
 let selectedSex = null;
+let selectedSilson = null;
+let selectedIntensity = null;
+let selectedPain = null;
 let hiddenNone = false;
 let lastAssess = null;
 let wizardStep = 1;
@@ -337,7 +347,49 @@ function toggleConcern(code) {
   }
   document.querySelectorAll("[data-concern]").forEach((b) =>
     b.classList.toggle("on", selectedConcerns.has(b.dataset.concern)));
+  syncCareSlotBlock();
 }
+
+function syncCareSlotBlock() {
+  const block = document.getElementById("careSlotBlock");
+  if (!block) return;
+  const show = selectedConcerns.has("outpatient") ||
+    selectedConcerns.has("inpatient");
+  block.classList.toggle("hidden", !show);
+}
+
+function careSlotPayload() {
+  const out = {};
+  if (selectedSilson) out.existing_silson = selectedSilson;
+  if (selectedIntensity) out.care_intensity = selectedIntensity;
+  if (selectedPain) out.cost_pain_type = selectedPain;
+  return out;
+}
+
+document.querySelectorAll("[data-silson]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    selectedSilson = selectedSilson === btn.dataset.silson
+      ? null : btn.dataset.silson;
+    document.querySelectorAll("[data-silson]").forEach((b) =>
+      b.classList.toggle("on", b.dataset.silson === selectedSilson));
+  });
+});
+document.querySelectorAll("[data-intensity]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    selectedIntensity = selectedIntensity === btn.dataset.intensity
+      ? null : btn.dataset.intensity;
+    document.querySelectorAll("[data-intensity]").forEach((b) =>
+      b.classList.toggle("on", b.dataset.intensity === selectedIntensity));
+  });
+});
+document.querySelectorAll("[data-pain]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    selectedPain = selectedPain === btn.dataset.pain
+      ? null : btn.dataset.pain;
+    document.querySelectorAll("[data-pain]").forEach((b) =>
+      b.classList.toggle("on", b.dataset.pain === selectedPain));
+  });
+});
 
 function syncSymptomButtons() {
   document.querySelectorAll("[data-symptom]").forEach((b) =>
@@ -713,8 +765,8 @@ function clusterEvidenceHtml(data) {
           (st.source
             ? `<p class="stat-meta">출처: ${escapeHtml(st.source)}</p>`
             : "") +
-          (st.cached
-            ? `<p class="stat-meta">${escapeHtml(st.note || "저장본. 시연용 참고 규모이며 실시간 공식 수치가 아님.")}</p>`
+          (st.note && !/시연용|저장본|실시간 공식/.test(String(st.note))
+            ? `<p class="stat-meta">${escapeHtml(st.note)}</p>`
             : "") +
           `</div>`
         );
@@ -768,6 +820,7 @@ async function runGuidanceFlow() {
         concerns: concernPayload(),
         age_band: selectedAge,
         sex: selectedSex,
+        ...careSlotPayload(),
       }),
     });
     const assessed = await assessRes.json();
@@ -789,6 +842,7 @@ async function runGuidanceFlow() {
         age_band: selectedAge,
         sex: selectedSex,
         symptoms: codes,
+        ...careSlotPayload(),
       }),
     });
     const guided = await gRes.json();
@@ -800,7 +854,7 @@ async function runGuidanceFlow() {
       guideResult.innerHTML =
         "<p class='muted'>안내를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.</p>";
     }
-    toast("안내 실패: " + err.message);
+    toast(friendlyErrorKo(err, "안내를 불러오지 못했어요. 잠시 후 다시 시도해 주세요."));
   } finally {
     toResult.disabled = false;
   }
@@ -842,15 +896,128 @@ function insurerMarkHtml(insurer) {
   return `<span class="insurer-mark" data-insurer="${escapeHtml(name)}" title="${escapeHtml(name || "보험사")}">${escapeHtml(short)}</span>`;
 }
 
-function productCompareHtml(products, productWhyHtml) {
+const FIT_ASPECT_LABELS = {
+  symptom: "증상",
+  concern: "걱정",
+  condition: "조건",
+};
+
+function stripDocMarkers(text) {
+  return String(text || "")
+    .replace(/\[\s*문서\s*\d+(?:\s*,\s*\d+)*\s*\]/g, "")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\s+\./g, ".")
+    .trim();
+}
+
+function productFitReasonsHtml(p) {
+  const reasons = p.fit_reasons || [];
+  if (!reasons.length) return "";
+  const lis = reasons.slice(0, 6).map((r) => {
+    const aspect = FIT_ASPECT_LABELS[r.aspect] || r.aspect || "";
+    const text = stripDocMarkers(r.text || "");
+    if (!text) return "";
+    const label = aspect
+      ? `<strong>${escapeHtml(aspect)}</strong> `
+      : "";
+    return `<li>${label}${escapeHtml(text)}</li>`;
+  }).filter(Boolean).join("");
+  if (!lis) return "";
+  return (
+    '<div class="product-fit-reasons">' +
+    "<strong>내가 입력한 상태에 적합한 이유</strong>" +
+    `<ul>${lis}</ul>` +
+    "</div>"
+  );
+}
+
+/** 비교할 상품 섹션: 상품명 볼드 + 문단 간격 유지 */
+function emphasizeProductWhyHtml(html, products) {
+  let out = String(html || "");
+  if (!out) return "";
+  const names = (products || [])
+    .map((p) => String((p && (p.name || p.title)) || "").trim())
+    .filter(Boolean)
+    .sort((a, b) => b.length - a.length);
+  for (const name of names) {
+    if (out.includes("<strong>" + escapeHtml(name) + "</strong>")) continue;
+    const esc = escapeHtml(name);
+    // 이미 strong 안이 아닌 첫 출현만 굵게
+    out = out.replace(esc, "<strong>" + esc + "</strong>");
+  }
+  return out;
+}
+
+function productMatchDisclaimerHtml(data) {
+  const meta = (data && data.product_match_meta) || {};
+  const line = (meta.disclaimer || "").trim() ||
+    "이 안내는 입력·보유 요약서 기준의 참고용 매칭입니다. " +
+    "보장·보험료·가입 가능 여부를 100% 보장하지 않으며, " +
+    "약관·설계·상담이 우선입니다.";
+  const similar = (meta.similar_note || "").trim();
+  let html =
+    '<div class="match-disclaimer" role="note">' +
+    `<p>${escapeHtml(line)}</p>`;
+  if (similar) {
+    html += `<p class="similar-note">${escapeHtml(similar)}</p>`;
+  }
+  html += "</div>";
+  return html;
+}
+
+function productWatchPointsHtml(p) {
+  const pts = p.watch_points || [];
+  const premium = p.premium_note
+    ? `<li class="muted">${escapeHtml(p.premium_note)}</li>`
+    : "";
+  if (!pts.length && !premium) return "";
+  const lis = pts.map((t) => `<li>${escapeHtml(t)}</li>`).join("");
+  return (
+    '<div class="product-watch">' +
+    "<strong>알아둘 점</strong>" +
+    `<ul>${lis}${premium}</ul>` +
+    "</div>"
+  );
+}
+
+function productWhyFallbackHtml(products, data) {
+  const profile = (data && data.profile) || {};
+  const concerns = (profile.concern_labels || []).filter(Boolean);
+  const symptoms = ((profile.symptoms || []).map((s) => s.label).filter(Boolean));
+  const bits = [];
+  if (concerns.length) {
+    bits.push("<strong>걱정</strong> " + escapeHtml(concerns.join("·")));
+  }
+  if (symptoms.length) {
+    bits.push("<strong>증상</strong> " + escapeHtml(symptoms.slice(0, 4).join("·")));
+  }
+  const reasons = (products || [])
+    .map((p) => String(p.selection_reason || "").trim())
+    .filter(Boolean);
+  if (!bits.length && !reasons.length) return "";
+  let body = "";
+  if (bits.length) {
+    body += "<p>입력하신 " + bits.join(" · ") +
+      "을 기준으로, 아래 요약서를 골랐어요.</p>";
+  }
+  if (reasons.length) {
+    body += "<ul class='product-why-list'>" +
+      reasons.map((r) => `<li>${escapeHtml(r)}</li>`).join("") +
+      "</ul>";
+  }
+  return "<div class='why-block explain prose product-why product-why-fallback'>" +
+    "<h3 class='brief-h'>왜 이 상품인가요</h3>" + body + "</div>";
+}
+
+function productCompareHtml(products, productWhyHtml, data) {
   const cards = (products || []).slice(0, 2).map((p) => {
     const kinds = (p.matched_coverages || []).map((c) =>
       `<span class="cite">${escapeHtml(c)}</span>`).join("");
     const cite = p.citation_label
-      ? `<div class="product-cite">${escapeHtml(p.citation_label)}</div>`
-      : "";
+      ? `<div class="product-cite">근거: ${escapeHtml(p.citation_label)}</div>`
+      : '<div class="product-cite muted">근거: 상품요약서 기준</div>';
     const badge = p.scope === "library"
-      ? '<span class="scope-badge">참고 설명서</span>'
+      ? '<span class="scope-badge">공용 요약서</span>'
       : "";
     const cats = [p.product_line_label, p.doc_kind_label, p.cost_nature_label]
       .filter(Boolean)
@@ -860,38 +1027,52 @@ function productCompareHtml(products, productWhyHtml) {
       ? `<div class="product-badges">${badge}${cats}</div>`
       : "";
     const heading = p.name || p.title || "";
-    const insurer = p.insurer
-      ? `<div class="product-insurer">${escapeHtml(p.insurer)}</div>`
+    const insurerName = (p.insurer || "").trim();
+    const titleStrong = insurerName
+      ? `<strong>${escapeHtml(insurerName)} · ${escapeHtml(heading)}</strong>`
+      : `<strong>${escapeHtml(heading)}</strong>`;
+    const reason = String(p.selection_reason || "").trim();
+    const reasonHtml = reason
+      ? `<p class="product-pick-reason"><strong>왜 이 상품인가</strong> ${escapeHtml(reason)}</p>`
       : "";
-    const summary = p.summary
-      ? `<p class="product-summary">${escapeHtml(p.summary)}</p>`
+    const one = (p.short_summary || "").trim() || String(p.summary || "").split(".")[0];
+    const summary = one
+      ? `<p class="product-summary">${escapeHtml(one.endsWith(".") || one.endsWith("…") ? one : one + ".")}</p>`
       : "";
     const link = brochurePdfLink(p.document_id, p.scope === "library");
+    const askSummary = (p.summary || p.short_summary || "").trim();
     const ask = p.document_id
-      ? `<button type="button" class="ask-doc-btn" data-ask-doc="${escapeHtml(p.document_id)}" data-ask-name="${escapeHtml(heading)}" data-ask-insurer="${escapeHtml(p.insurer || "")}">질문하기</button>`
+      ? `<button type="button" class="ask-doc-btn" data-ask-doc="${escapeHtml(p.document_id)}" data-ask-name="${escapeHtml(heading)}" data-ask-insurer="${escapeHtml(p.insurer || "")}" data-ask-summary="${escapeHtml(askSummary)}">질문하기</button>`
       : "";
     const actions = (link || ask)
       ? `<div class="brochure-actions">${link}${ask}</div>`
       : "";
     return `<div class="product-card">` +
-      `<div class="product-card-head">${insurerMarkHtml(p.insurer)}<strong>${escapeHtml(heading)}</strong></div>` +
-      insurer + badges +
+      `<div class="product-card-head">${insurerMarkHtml(p.insurer)}${titleStrong}</div>` +
+      badges +
+      reasonHtml +
       cite +
       summary +
+      productFitReasonsHtml(p) +
+      productWatchPointsHtml(p) +
       actions +
       (kinds ? `<div class="citations">${kinds}</div>` : "") +
       "</div>";
   }).join("");
   const whyBlock = productWhyHtml
     ? "<div class='why-block explain prose product-why'>" + productWhyHtml + "</div>"
-    : "";
+    : productWhyFallbackHtml(products, data);
+  const disc = productMatchDisclaimerHtml(data);
+  const heading =
+    "<h2>이 보장이 들어 있는 상품 요약서 비교</h2>" +
+    "<p class='muted'>광고·가입 권유가 아닙니다. 입력하신 <strong>걱정·증상</strong>과 맞는 " +
+    "<strong>보장 유형</strong> 기준으로 요약서 2개를 비교합니다. PDF는 상품요약서입니다.</p>" +
+    "<p class='muted selection-basis'>고른 기준: 걱정(병원비→실손·혼합 우선) · 증상 보장축</p>" +
+    disc;
   if (cards) {
-    return "<h2>증상에 알맞은 보험</h2>" +
-      "<p class='muted'>상황에 맞춰 고른 상품요약서 2개입니다. 링크는 인덱싱한 PDF입니다.</p>" +
-      whyBlock +
-      "<div class='product-grid'>" + cards + "</div>";
+    return heading + whyBlock + "<div class='product-grid'>" + cards + "</div>";
   }
-  return "<h2>증상에 알맞은 보험</h2>" +
+  return heading +
     whyBlock +
     "<div class='product-empty'>" +
     "<p>공용 설명서가 아직 없습니다. 내 파일을 올리면 비교할 수 있습니다.</p>" +
@@ -988,19 +1169,56 @@ function explainHtml(text) {
 
 function factorRows(profile) {
   const p = profile || {};
-  const concerns = (p.concern_labels || []).join(", ");
+  const concerns = (p.concern_labels || []).filter(Boolean).join(", ");
+  const chip = (label, value) => {
+    if (!value) return "";
+    return (
+      `<span class="type-badge factor">` +
+      `<strong>${escapeHtml(label)}</strong> ${escapeHtml(value)}` +
+      `</span>`
+    );
+  };
+  const chips = [
+    chip("직업", p.occupation_label),
+    chip("걱정", concerns),
+    chip("연령", p.age_label),
+    chip("성별", p.sex_label),
+  ].filter(Boolean).join("");
   return (
-    '<div class="factor-row"><span class="type-label">상황</span>' +
-    `<span>직업 ${orNone(p.occupation_label)}</span>` +
-    `<span>걱정 ${orNone(concerns)}</span>` +
-    `<span>연령 ${orNone(p.age_label)}</span>` +
-    `<span>성별 ${orNone(p.sex_label)}</span>` +
+    '<div class="type-row factor-row"><span class="type-label">상황</span>' +
+    (chips || '<span class="muted">해당 없음</span>') +
     "</div>"
   );
 }
 
+function occupationNoteOnceHtml(data) {
+  const cards = data.area_cards || [];
+  const profile = data.profile || {};
+  let note = "";
+  if (!profile.occupation) {
+    note = "직업 정보가 없어 직군 요인은 반영하지 않았어요.";
+  } else {
+    for (const c of cards) {
+      const of = c.occupation_factor || {};
+      if (of.missing && of.reason) {
+        note = of.reason;
+        break;
+      }
+    }
+    if (!note && (profile.occupation === "student"
+      || profile.occupation === "homemaker"
+      || profile.occupation === "retired"
+      || profile.occupation === "other")) {
+      note = (profile.occupation_label || "선택 직군")
+        + "이라 직군 상해 규칙은 적용하지 않았어요.";
+    }
+  }
+  if (!note) return "";
+  return `<p class="muted occ-note-once">${escapeHtml(note)}</p>`;
+}
+
 /** A. 입력 확인 — 판단 없이 메아리만. */
-function inputEchoHtml(symptoms, profile) {
+function inputEchoHtml(symptoms, profile, data) {
   const usual = (symptoms || []).filter((s) => (s.type || "usual") !== "hidden");
   const hidden = (symptoms || []).filter((s) => s.type === "hidden");
   const chip = (s, kind) =>
@@ -1020,28 +1238,29 @@ function inputEchoHtml(symptoms, profile) {
     '<div class="type-row"><span class="type-label">놓치기 쉬운 불편</span>' +
     hiddenHtml + "</div>" +
     factorRows(profile) +
+    occupationNoteOnceHtml(data || { profile, area_cards: [] }) +
     "</section>"
   );
 }
 
-function _evidenceLine(title, block) {
+function _evidenceLine(title, block, opts) {
+  const o = opts || {};
   const b = block || {};
   const missing = b.missing || b.label === "찾지 못했어요";
-  const label = escapeHtml(b.label || "찾지 못했어요");
+  if (missing) return "";
+  const label = escapeHtml(b.label || "");
   let body = `<strong>${escapeHtml(title)}</strong> ${label}`;
-  if (!missing && b.detail) {
+  if (b.detail) {
     body += ` <span class="stat-meta">(${escapeHtml(b.detail)})</span>`;
   }
-  if (!missing && b.inpatient_share != null && Number.isFinite(Number(b.inpatient_share))) {
+  if (b.inpatient_share != null && Number.isFinite(Number(b.inpatient_share))) {
     body += ` <span class="stat-meta">입원 비중 ${Math.round(Number(b.inpatient_share) * 100)}%</span>`;
   }
-  if (missing && b.reason) {
-    body += ` <span class="stat-meta">${escapeHtml(b.reason)}</span>`;
-  }
-  if (b.source) {
+  // 영역 카드는 섹션 공통 출처로 대체 — per-line 출처/시연 note 숨김
+  if (!o.hideSource && b.source) {
     body += `<div class="src">출처: ${escapeHtml(b.source)}</div>`;
   }
-  if (b.note) {
+  if (!o.hideNote && b.note && !/시연용|저장본|실시간 공식/.test(String(b.note))) {
     body += `<div class="src">${escapeHtml(b.note)}</div>`;
   }
   return `<li class="area-evidence">${body}</li>`;
@@ -1057,137 +1276,181 @@ function areaSectionTitleHtml() {
   );
 }
 
-/** B. 염두에 둘 영역 카드 */
+function _areaCardArticleHtml(card, i) {
+  const linked = (card.linked_symptoms || []).map(escapeHtml).join(", ");
+  const selN = card.selected_symptom_count || 0;
+  const linkN = card.linked_count || (card.linked_symptoms || []).length;
+  const matchLine = (selN && linkN)
+    ? `<p class="stat-meta">선택하신 ${selN}개 중 ${linkN}개(${linked || "—"})와 관련</p>`
+    : (linked ? `<p class="stat-meta">${linked}과 연결</p>` : "");
+  const groups = (card.candidate_groups || [])
+    .map((g) => escapeHtml(g.label || ""))
+    .filter(Boolean)
+    .join(" · ");
+  const limits = (card.limits || [])
+    .filter((t) => !/draft|초안|캐시|진단이 아닙니다|집단 청구 경향|개인의 중증도/i.test(String(t)))
+    .map((t) => `<li>${escapeHtml(t)}</li>`)
+    .join("");
+  const d298 = card.disease_298;
+  const d298Line = (d298 && !d298.missing)
+    ? _evidenceLine("질병분류 급여(298)", d298, { hideSource: true })
+    : "";
+  const d298Fold = d298Line
+    ? "<details class='area-aux-fold'>" +
+      "<summary class='area-more-summary area-aux-summary'>질병분류 급여 참고(보조)</summary>" +
+      `<ul class="area-evidence-list">${d298Line}</ul></details>`
+    : "";
+  const commonLi = _evidenceLine("흔함", card.commonness, { hideSource: true, hideNote: true });
+  const sevLi = _evidenceLine("심각도 참고", card.severity, { hideSource: true, hideNote: true });
+  const evidenceUl = (commonLi || sevLi)
+    ? `<ul class="area-evidence-list">${commonLi}${sevLi}</ul>`
+    : "";
+  return (
+    `<article class="area-card cluster-card">` +
+    `<strong>${i + 1}. ${escapeHtml(card.title || "")}</strong>` +
+    matchLine +
+    (groups ? `<p><strong>살펴볼 수 있는 질환군</strong>: ${groups}</p>` : "") +
+    evidenceUl +
+    d298Fold +
+    (limits ? `<ul class="area-limits muted">${limits}</ul>` : "") +
+    `</article>`
+  );
+}
+
+/** B. 염두에 둘 영역 카드 — 상위 2 펼침, 나머지 더 보기 */
 function areaCardsHtml(data) {
   const cards = data.area_cards || [];
   if (!cards.length) {
     return (
       '<section class="evidence-block area-cards-block" aria-label="염두에 둘 영역">' +
       areaSectionTitleHtml() +
-      "<p class='muted'>지금은 연결할 참고 영역 카드가 없습니다.</p>" +
+      "<p>이 조합은 아직 연결할 참고 영역이 준비되지 않았어요.</p>" +
+      "<p class='muted'>이번 안내의 영역 카드에는 증상을 반영하지 않았고, " +
+      "아래 「점검할 보장」은 걱정·(가능하면) 치료 패턴 기준으로만 정했어요. " +
+      "증상이 계속되면 진료로 확인해 보세요.</p>" +
       "</section>"
     );
   }
-  const items = cards.map((card, i) => {
-    const linked = (card.linked_symptoms || []).map(escapeHtml).join(", ");
-    const groups = (card.candidate_groups || [])
-      .map((g) => escapeHtml(g.label || ""))
-      .filter(Boolean)
-      .join(" · ");
-    const occ = card.occupation_factor || {};
-    const occText = escapeHtml(occ.text || "찾지 못했어요");
-    const occReason = (occ.missing && occ.reason)
-      ? ` <span class="stat-meta">${escapeHtml(occ.reason)}</span>`
-      : "";
-    const occSrc = occ.source
-      ? `<div class="src">출처: ${escapeHtml(occ.source)}</div>`
-      : "";
-    const occLimit = occ.claims_not_incidence
-      ? "<div class='src'>산재 처리 건수 기준이며 발생률은 아닙니다.</div>"
-      : "";
-    const limits = (card.limits || [])
-      .map((t) => `<li>${escapeHtml(t)}</li>`)
+  const primary = cards.slice(0, 2);
+  const rest = cards.slice(2);
+  const primaryHtml = primary
+    .map((card, i) => _areaCardArticleHtml(card, i))
+    .join("");
+  let moreHtml = "";
+  if (rest.length) {
+    const inner = rest
+      .map((card, i) => _areaCardArticleHtml(card, i + primary.length))
       .join("");
-    const care = card.care_context;
-    const careIn = care && care.inpatient;
-    const careLi = (care && !care.missing)
-      ? _evidenceLine("이용·비용 맥락", care) +
-        (careIn && !careIn.missing
-          ? `<li class="area-evidence"><strong>입원 이용</strong> ${escapeHtml(careIn.label || "")}` +
-            (careIn.detail ? ` — ${escapeHtml(careIn.detail)}` : "") +
-            (careIn.source
-              ? `<div class="src">출처: ${escapeHtml(careIn.source)}</div>`
-              : "") +
-            `</li>`
-          : "") +
-        (care.note
-          ? `<li class="area-evidence muted">${escapeHtml(care.note)}</li>`
-          : "")
-      : "";
-    const surg = card.surgery_context;
-    const surgLi = (surg && !surg.missing)
-      ? _evidenceLine("수술 참고(건강보험)", surg) +
-        (surg.note
-          ? `<li class="area-evidence muted">${escapeHtml(surg.note)}</li>`
-          : "")
-      : "";
-    const d298 = card.disease_298;
-    const d298Li = d298
-      ? _evidenceLine("질병분류 급여(298)", d298) +
-        (d298.note
-          ? `<li class="area-evidence muted">${escapeHtml(d298.note)}</li>`
-          : "")
-      : "";
-    return (
-      `<article class="area-card cluster-card">` +
-      `<strong>${i + 1}. ${escapeHtml(card.title || "")}</strong>` +
-      (linked
-        ? `<p class="stat-meta">${linked}과 연결</p>`
-        : "") +
-      (groups
-        ? `<p>살펴볼 수 있는 질환군: ${groups}</p>`
-        : "") +
-      `<ul class="area-evidence-list">` +
-      _evidenceLine("흔함", card.commonness) +
-      _evidenceLine("심각도 참고", card.severity) +
-      careLi +
-      d298Li +
-      surgLi +
-      `<li class="area-evidence"><strong>직군 요인</strong> ${occText}${occReason}${occSrc}${occLimit}</li>` +
-      `</ul>` +
-      (limits
-        ? `<ul class="area-limits muted">${limits}</ul>`
-        : "") +
-      `</article>`
-    );
-  }).join("");
+    moreHtml =
+      "<details class='area-more-fold policy-fold'>" +
+      "<summary class='area-more-summary'>더 보기: 연결 비중이 낮은 영역</summary>" +
+      "<p class='muted'>일부 증상(예: 피로)만 겹쳐 구별력이 낮은 영역입니다.</p>" +
+      `<div class="area-card-grid">${inner}</div>` +
+      "</details>";
+  }
   return (
     '<section class="evidence-block area-cards-block" aria-label="염두에 둘 영역">' +
     areaSectionTitleHtml() +
-    "<p class='muted'>진단이 아니라 참고예요. 흔함은 이 안내가 살피는 참고 질환군 안에서의 상대적 흔함입니다. 이용·비용 맥락은 연령·성별 전체 진료 통계(KOSIS·건보공단)이며 특정 상병 유병이 아닙니다.</p>" +
-    `<div class="area-card-grid">${items}</div>` +
+    "<p class='muted'><strong>진단이 아닙니다.</strong> " +
+    "집단 청구 경향이며 개인의 중증도가 아닙니다. " +
+    "「흔함」은 이 안내가 고른 참고군 안에서의 상대 비교이며 " +
+    "전체 인구·전체 상병 대비가 아닙니다. " +
+    "청구 참고는 건강보험심사평가원 질병정보서비스를 봅니다.</p>" +
+    `<div class="area-card-grid">${primaryHtml}</div>` +
+    moreHtml +
     "</section>"
   );
 }
 
-/** 공공 통계 참고 — 접지 않음 (보험 C와 분리) */
+/** 공공 통계 참고 — missing/notes 숨김 */
 function publicStatsPanelHtml(data) {
   const panel = data.public_stats || {};
-  const items = panel.items || [];
-  if (!items.length && !(panel.notes || []).length) return "";
+  const items = (panel.items || []).filter(
+    (it) => !(it.missing || it.label === "찾지 못했어요")
+  );
+  if (!items.length) return "";
   const rows = items.map((it) => {
-    const missing = it.missing || it.label === "찾지 못했어요";
     let body = `<strong>${escapeHtml(it.title || "")}</strong> `;
-    if (missing) {
-      body += escapeHtml(it.label || "찾지 못했어요");
-      if (it.reason) {
-        body += ` <span class="stat-meta">${escapeHtml(it.reason)}</span>`;
-      }
-    } else {
-      body += escapeHtml(it.detail || it.label || "");
-    }
+    body += escapeHtml(it.detail || it.label || "");
     if (it.source) {
       body += `<div class="src">출처: ${escapeHtml(it.source)}</div>`;
     }
-    if (it.note) {
-      body += `<div class="src">${escapeHtml(it.note)}</div>`;
-    }
     return `<li class="public-stat-item">${body}</li>`;
   }).join("");
-  const notes = (panel.notes || [])
-    .map((n) => `<li class="muted">${escapeHtml(n)}</li>`)
-    .join("");
   return (
     '<section class="public-stats-panel" aria-label="공공 통계 참고">' +
     `<h2>${escapeHtml(panel.title || "공공 통계 참고")}</h2>` +
-    "<p class='muted'>진단·유병이 아닙니다. 연령·성별 전체 진료·산재 업종 통계를 한곳에 모았습니다.</p>" +
     (rows ? `<ul class="public-stats-list">${rows}</ul>` : "") +
-    (notes ? `<ul class="public-stats-notes">${notes}</ul>` : "") +
     "</section>"
   );
 }
 
-/** 왜 이런 보장을 살펴보나요 — 결정론 steps */
+/** ③ 걱정 비용 블록 — 출처는 섹션당 1회 */
+function costPatternHtml(data) {
+  const cp = data.cost_pattern || {};
+  const lines = (cp.lines || []).filter((ln) => !ln.missing);
+  if (!lines.length) return "";
+  const rows = lines.map((ln) => {
+    const body = `<strong>${escapeHtml(ln.title || "")}</strong> ${escapeHtml(ln.text || "")}`;
+    return `<li class="cost-line">${body}</li>`;
+  }).join("");
+  const sources = [];
+  for (const ln of lines) {
+    const s = String(ln.source || "").trim();
+    if (s && !sources.includes(s)) sources.push(s);
+  }
+  const srcLine = sources.length
+    ? `<p class="src cost-sources">출처: ${escapeHtml(sources.join(" · "))}</p>`
+    : "";
+  return (
+    '<section class="cost-pattern" aria-label="비용 패턴">' +
+    `<h2>${escapeHtml(cp.title || "비용은 어떻게 나갈까요?")}</h2>` +
+    `<p class="muted"><strong>집단 통계 참고</strong>이며 개인 예상 비용이 아닙니다.` +
+    (cp.note && !/집단 통계|개인 예상/.test(String(cp.note))
+      ? ` ${escapeHtml(cp.note)}`
+      : "") +
+    `</p>` +
+    (rows ? `<ul class="cost-lines">${rows}</ul>` : "") +
+    srcLine +
+    "</section>"
+  );
+}
+
+/** ④ 대비하려면 이 보장부터 점검 — coverage_priority 규칙표 */
+function coveragePriorityHtml(data) {
+  const cp = data.coverage_priority || {};
+  const items = cp.items || [];
+  if (!items.length) return "";
+  const rows = items.map((it) => {
+    const checks = (it.check_points || [])
+      .map((c) => `<li>${escapeHtml(c)}</li>`)
+      .join("");
+    return (
+      `<li class="priority-item">` +
+      `<strong>${escapeHtml(String(it.rank || ""))}. ${escapeHtml(it.title || "")}</strong>` +
+      `<p>${escapeHtml(it.reason || "")}</p>` +
+      (checks ? `<ul class="priority-checks muted">${checks}</ul>` : "") +
+      `</li>`
+    );
+  }).join("");
+  const miss = (cp.missing_notes || [])
+    .map((n) => `<li class="muted">${escapeHtml(n)}</li>`)
+    .join("");
+  const basis = cp.selection_basis
+    ? `<p class="muted selection-basis">순위 기준: ${escapeHtml(cp.selection_basis)}</p>`
+    : "";
+  return (
+    '<section class="coverage-priority" aria-label="점검할 보장">' +
+    "<h2>대비하려면 이 보장부터 점검해 보세요</h2>" +
+    "<p class='muted'>특정 상품 가입을 권유하지 않습니다. <strong>보장 유형</strong>을 점검하는 순서입니다.</p>" +
+    basis +
+    `<ol class="priority-list">${rows}</ol>` +
+    (miss ? `<ul class="priority-missing">${miss}</ul>` : "") +
+    "</section>"
+  );
+}
+
+/** 왜 이런 보장을 살펴보나요 — 결정론 steps (보조) */
 function whyInsuranceHtml(data) {
   const r = data.recommendation_rationale || {};
   const steps = r.steps || [];
@@ -1233,6 +1496,21 @@ function deepenQuestionsHtml() {
     "<li>어떤 운전·작업을 하시나요? (장시간·중량물 등)</li>" +
     "<li>기존에 실손·단체보험이 있나요?</li>" +
     "</ul></details>"
+  );
+}
+
+/** ⑥ 가입 전에 알아두세요 */
+function preJoinHtml() {
+  return (
+    '<section class="pre-join" aria-label="가입 전 안내">' +
+    "<h2>가입 전에 알아두세요</h2>" +
+    "<ul class='pre-join-list'>" +
+    "<li><strong>이미 가진 보험</strong>(부모님·회사·실손)을 먼저 확인하세요. " +
+    "실손은 중복 가입해도 실제 부담액을 넘겨 받기 어려운 구조로 알려져 있어요(상품별 확인).</li>" +
+    "<li><strong>진료·검사</strong>를 받았다면 가입 때 알려야 할 수 있어요. " +
+    "가입을 이유로 진료를 미루지 마세요.</li>" +
+    "<li>이 안내는 <strong>진단·상품 권유 아님</strong>이에요. 약관·상담이 우선입니다.</li>" +
+    "</ul></section>"
   );
 }
 
@@ -1292,19 +1570,21 @@ function renderGuidance(data) {
     : "<p class='muted'>업로드된 약관이 없어 근거 라벨을 붙이지 않았습니다. 위쪽 「약관 올리기」를 이용하세요.</p>";
   const brief = splitBriefSections(data.explanation_why || "");
   const medicalHtml = explainHtml(brief.medical);
-  const productWhyHtml = explainHtml(brief.products);
+  const productWhyHtml = emphasizeProductWhyHtml(
+    explainHtml(brief.products), data.products || []);
   resultChatConvId = newConversationId();
   resultChatDocIds = (data.products || [])
     .map((p) => p && p.document_id)
     .filter(Boolean);
   lastGuidanceMatch = buildMatchContext(data);
   guideResult.innerHTML =
-    inputEchoHtml(symptoms, data.profile) +
+    inputEchoHtml(symptoms, data.profile, data) +
+    productCompareHtml(data.products, productWhyHtml, data) +
     areaCardsHtml(data) +
+    costPatternHtml(data) +
+    coveragePriorityHtml(data) +
     publicStatsPanelHtml(data) +
-    insuranceBridgeHtml(data) +
-    whyInsuranceHtml(data) +
-    productCompareHtml(data.products, productWhyHtml) +
+    preJoinHtml() +
     deepenQuestionsHtml() +
     safetyHtml(data) +
     legacyBriefFoldHtml(medicalHtml, data) +
@@ -1327,6 +1607,7 @@ function renderGuidance(data) {
         document_id: btn.dataset.askDoc,
         display_name: btn.dataset.askName,
         insurer: btn.dataset.askInsurer,
+        summary: btn.dataset.askSummary || "",
       });
     });
   });
@@ -1415,11 +1696,17 @@ async function purgeSession() {
   selectedAge = null;
   selectedSex = null;
   selectedConcerns.clear();
+  selectedSilson = null;
+  selectedIntensity = null;
+  selectedPain = null;
   hiddenNone = false;
   maxReached = 1;
-  document.querySelectorAll("[data-symptom], [data-occ], [data-concern], [data-age], [data-sex]").forEach((b) =>
-    b.classList.remove("on"));
+  document.querySelectorAll(
+    "[data-symptom], [data-occ], [data-concern], [data-age], [data-sex], " +
+    "[data-silson], [data-intensity], [data-pain]"
+  ).forEach((b) => b.classList.remove("on"));
   document.getElementById("hiddenNoneBtn").classList.remove("on");
+  syncCareSlotBlock();
   if (symptomInput) symptomInput.value = "";
   stateCard.classList.add("hidden");
   document.getElementById("cardFacts").innerHTML = "";
@@ -1492,7 +1779,7 @@ async function uploadFile(file) {
     refreshDocs();
     pollDoc(data.document_id);
   } catch (err) {
-    toast("업로드 실패: " + err.message);
+    toast(friendlyErrorKo(err, "파일을 올리지 못했어요. 잠시 후 다시 시도해 주세요."));
   }
 }
 
@@ -1525,7 +1812,17 @@ async function openBrochurePdf(documentId) {
   }
   try {
     const res = await fetch(brochurePdfHref(id), { headers: headers() });
-    if (!res.ok) throw new Error("pdf " + res.status);
+    if (res.status === 404) {
+      toast("설명서 원본 파일을 찾지 못했어요.");
+      return;
+    }
+    if (!res.ok) {
+      toast(friendlyErrorKo(
+        new Error("pdf " + res.status),
+        "설명서 PDF를 열지 못했어요. 잠시 후 다시 시도해 주세요."
+      ));
+      return;
+    }
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
     const win = window.open(url, "_blank");
@@ -1533,7 +1830,10 @@ async function openBrochurePdf(documentId) {
     else toast("팝업이 차단됐습니다. 브라우저에서 허용해 주세요.");
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
   } catch (err) {
-    toast("설명서 PDF를 열지 못했습니다.");
+    toast(friendlyErrorKo(
+      err,
+      "설명서 PDF를 열지 못했어요. 잠시 후 다시 시도해 주세요."
+    ));
   }
 }
 
@@ -1752,7 +2052,7 @@ async function deleteDoc(id, filename) {
     toast(`삭제됨: ${filename || id}`);
     refreshDocs();
   } catch (err) {
-    toast("삭제 실패: " + err.message);
+    toast(friendlyErrorKo(err, "삭제하지 못했어요. 잠시 후 다시 시도해 주세요."));
   }
 }
 
@@ -1907,7 +2207,7 @@ async function streamAnswerInto({
         failed = true;
         bubble.classList.remove("thinking");
         bubble.classList.add("abstain");
-        bubble.textContent = abstainMessage(evt.data);
+        bubble.textContent = abstainMessage(evt.data, query);
       } else if (evt.kind === "error") {
         failed = true;
         bubble.classList.remove("thinking");
@@ -1922,7 +2222,10 @@ async function streamAnswerInto({
   } catch (err) {
     bubble.classList.remove("thinking");
     bubble.classList.add("abstain");
-    bubble.textContent = "오류가 발생했습니다: " + err.message;
+    bubble.textContent = friendlyErrorKo(
+      err,
+      "답변을 가져오지 못했어요. 잠시 후 다시 시도해 주세요."
+    );
   }
 }
 
@@ -2025,23 +2328,45 @@ function inlineAnswerHtml(s, sourceByN) {
     });
 }
 
-function abstainMessage(reason) {
+function softNoEvidenceKo(query) {
+  const q = String(query || "");
+  if (/해약|환급|미지급/.test(q)) {
+    return (
+      "이 설명서에서 질문과 바로 맞는 구절을 찾지 못했습니다. "
+      + "환급액 같은 확정 수치는 지어내지 않습니다.\n\n"
+      + "「해약환급금」「환급형」「미지급형」처럼 약관 용어로 다시 물어보시면 "
+      + "찾기가 쉽습니다. 예: 이 상품에 해약환급금 조항이 있나요?\n\n"
+      + "확정이 필요하면 보험사 고객센터·설계사 상담을 함께 이용해 주세요."
+    );
+  }
+  if (/보험료|월납|견적|가격|얼마/.test(q)) {
+    return (
+      "이 설명서만으로 개인 월 보험료를 확정하기 어렵습니다. "
+      + "금액을 지어내지 않습니다.\n\n"
+      + "보험사 가격공시·설계 견적·고객센터·설계사 상담으로 확인해 주세요.\n\n"
+      + "확정이 필요하면 보험사 고객센터·설계사 상담을 함께 이용해 주세요."
+    );
+  }
+  return (
+    "이 설명서에서 질문과 바로 맞는 구절을 찾지 못했습니다. "
+    + "날짜·일수 같은 확정 수치는 지어내지 않습니다.\n\n"
+    + "「보험기간」「책임개시」「면책」「대기」처럼 약관 용어로 다시 물어보시면 "
+    + "찾기가 쉽습니다. 예: 책임개시일은 언제인가요? / 면책·대기기간은 며칠인가요?\n\n"
+    + "확정이 필요하면 보험사 고객센터·설계사 상담을 함께 이용해 주세요."
+  );
+}
+
+function abstainMessage(reason, query) {
   // Soft abstain: 침묵 보류 대신 다음 행동 안내 (확정 수치는 만들지 않음).
   if (reason === "empty_context" || reason === "low_score"
       || reason === "no_evidence_in_documents" || reason === "missing_citation")
-    return (
-      "이 설명서에서 질문과 바로 맞는 구절을 찾지 못했습니다. "
-      + "날짜·일수 같은 확정 수치는 지어내지 않습니다.\n\n"
-      + "「보험기간」「책임개시」「면책」「대기」처럼 약관 용어로 다시 물어보시면 "
-      + "찾기가 쉽습니다. 예: 책임개시일은 언제인가요? / 면책·대기기간은 며칠인가요?\n\n"
-      + "확정이 필요하면 보험사 고객센터·설계사 상담을 함께 이용해 주세요."
-    );
+    return softNoEvidenceKo(query);
   if ((reason || "").startsWith("fabricated_citation"))
     return "답변 검증에 실패하여 응답을 보류합니다. 질문을 조금 바꿔 다시 시도해 주세요.";
   if (reason === "llm_unavailable")
     return "답변 생성 서비스가 일시적으로 불안정합니다. 잠시 후 다시 시도해 주세요.";
   if (reason === "llm_cost_limit")
-    return "질문이 너무 넓어 한 번에 답하기 어렵습니다. 담보·기간을 좁혀 다시 물어봐 주세요.";
+    return "참고할 내용이 많아 한 번에 다루기 어려웠어요. 담보·상품 이름을 좁혀 다시 물어봐 주세요.";
   if (reason === "embedding_unavailable")
     return (
       "문서 검색 서비스가 일시적으로 불가합니다. "
@@ -2078,7 +2403,7 @@ function renderCitations(wrap, data) {
     const webUrl = (c.document_id === "web" || /^https?:\/\//i.test(srcDoc))
       ? (srcDoc.startsWith("http") ? srcDoc : (c.citation_label || ""))
       : "";
-    const label = webUrl
+    let label = webUrl
       ? ("공식 사이트 · " + (c.citation_label || srcDoc || "링크"))
       : ((srcDoc || c.citation_label || "출처") + page + path);
     const id = c.document_id || "";
@@ -2114,6 +2439,30 @@ function escapeHtml(s) {
   return (s || "").replace(/[&<>"']/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])
   );
+}
+
+/** 사용자에게 보이는 오류 — 영어·상태코드·스택을 붙이지 않음 */
+function friendlyErrorKo(err, fallback) {
+  const msg = String((err && err.message) || err || "");
+  if (/404|찾지 못|not found/i.test(msg)) {
+    return "요청하신 내용을 찾지 못했어요. 다른 항목을 골라 주세요.";
+  }
+  if (/429|잦|too many|rate/i.test(msg)) {
+    return "요청이 너무 잦아요. 잠시 후 다시 시도해 주세요.";
+  }
+  if (/upload|업로드/i.test(msg)) {
+    return "파일을 올리지 못했어요. 잠시 후 다시 시도해 주세요.";
+  }
+  if (/delete|삭제/i.test(msg)) {
+    return "삭제하지 못했어요. 잠시 후 다시 시도해 주세요.";
+  }
+  if (/guidance|assess|안내/i.test(msg)) {
+    return "안내를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.";
+  }
+  if (/query|network|fetch|Failed to fetch|TypeError|Assignment|constant/i.test(msg)) {
+    return "답변을 가져오지 못했어요. 잠시 후 다시 시도해 주세요.";
+  }
+  return fallback || "잠시 후 다시 시도해 주세요.";
 }
 
 renderSymptomChips();

@@ -13,7 +13,7 @@ _NO_EVIDENCE_RE = re.compile(
     r"|기재되어 있지 않|관련 내용이 .{0,24}있지 않"
     r"|근거가 없|언급되어 있지 않|알 수 없습니다|모릅니다|모른다고?\b)")
 
-# LLM이 「없다」고 했을 때 hard kill 대신 소비자용 soft 안내.
+# LLM이 「없다」고 했을 때 hard kill 대신 소비자용 soft 안내 (기본=면책·대기).
 SOFT_NO_EVIDENCE_ANSWER = (
     "이 설명서에서 질문과 바로 맞는 구절을 찾지 못했습니다. "
     "날짜·일수 같은 확정 수치는 지어내지 않습니다.\n\n"
@@ -23,6 +23,35 @@ SOFT_NO_EVIDENCE_ANSWER = (
     "· 해당 담보의 면책·대기기간은 며칠인가요?\n\n"
     "확정 안내가 필요하면 보험사 고객센터·설계사 상담을 함께 이용해 주세요."
 )
+
+_SURRENDER_RE = re.compile(r"해약|환급|미지급")
+_PREMIUM_RE = re.compile(r"보험료|월납|견적|가격|얼마")
+
+
+def soft_no_evidence_answer(query: str = "") -> str:
+    """질문 주제에 맞춘 soft no-evidence 안내."""
+    q = str(query or "")
+    if _SURRENDER_RE.search(q):
+        return (
+            "이 설명서에서 질문과 바로 맞는 구절을 찾지 못했습니다. "
+            "환급액 같은 확정 수치는 지어내지 않습니다.\n\n"
+            "상품요약서·약관의 「해약환급금」「환급형」「미지급형」 조항을 "
+            "확인하시거나, 아래처럼 바꿔 물어보시면 찾기가 쉽습니다.\n"
+            "· 이 상품에 해약환급금·미지급형 관련 조항이 있나요?\n"
+            "· 중도 해지 시 환급 관련 안내가 어디에 있나요?\n\n"
+            "확정 안내가 필요하면 보험사 고객센터·설계사 상담을 함께 이용해 주세요."
+        )
+    if _PREMIUM_RE.search(q):
+        return (
+            "이 설명서만으로 개인 월 보험료를 확정하기 어렵습니다. "
+            "금액을 지어내지 않습니다.\n\n"
+            "보험사 가격공시·설계 견적·고객센터·설계사 상담으로 확인해 주세요. "
+            "아래처럼 바꿔 물어보실 수도 있습니다.\n"
+            "· 이 상품은 갱신형인가요?\n"
+            "· 보험료에 영향을 주는 고지 항목은 무엇인가요?\n\n"
+            "확정 안내가 필요하면 보험사 고객센터·설계사 상담을 함께 이용해 주세요."
+        )
+    return SOFT_NO_EVIDENCE_ANSWER
 
 
 @dataclass
@@ -42,6 +71,7 @@ class OutputGuard:
         cited_chunk_ids: list[str],
         available_ids: list[str],
         canary: str | None = None,
+        query: str = "",
     ) -> OutputGuardResult:
         if answer is None:
             return OutputGuardResult(
@@ -72,7 +102,7 @@ class OutputGuard:
                 cites = list(available_ids)[:3]
                 return OutputGuardResult(
                     ok=True,
-                    answer=SOFT_NO_EVIDENCE_ANSWER,
+                    answer=soft_no_evidence_answer(query),
                     cited_chunk_ids=cites,
                     abstain_reason=None,
                 )

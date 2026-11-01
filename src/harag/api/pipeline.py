@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import threading
 from typing import AsyncIterator
 
@@ -138,6 +139,32 @@ def prepend_match_context(
     return [sc] + rest
 
 
+_MATCH_EXPLAIN_RE = re.compile(
+    r"(매칭\s*이유|어떻게\s*연결|증상과|왜\s*이\s*(보험|상품)|추천\s*이유)",
+    re.I,
+)
+
+
+def is_match_explain_query(query: str) -> bool:
+    """결과 채팅 매칭·연결 류 — match_context만으로 답 가능."""
+    return bool(_MATCH_EXPLAIN_RE.search(query or ""))
+
+
+def finalize_context_budget(
+    results: list[ScoredChunk],
+    *,
+    max_tokens: int,
+) -> list[ScoredChunk]:
+    """match-context를 예산에 우선 포함해 최종 패킹."""
+    from harag.retrieval.context_compact import pack_keeping_priority
+
+    return pack_keeping_priority(
+        results,
+        priority_ids={MATCH_CONTEXT_CHUNK_ID},
+        max_tokens=max_tokens,
+    )
+
+
 class _MatchModePrompt:
     """match_context 있을 때 LLM 시스템 지시 일시 보강."""
 
@@ -220,6 +247,7 @@ class QueryPipelineImpl:
                  metadata=None,
                  web_browser=None,
                  intent_llm=None,
+                 suggest_llm=None,
                  min_score: float = 0.15):
         self._retriever = retriever
         self._generator = generator
@@ -233,6 +261,7 @@ class QueryPipelineImpl:
         self._metadata = metadata
         self._web_browser = web_browser
         self._intent_llm = intent_llm
+        self._suggest_llm = suggest_llm
         self._min_score = float(min_score)
         self._store = retriever  # empty_context 진단용(count_for_owner)
 
@@ -258,13 +287,32 @@ class QueryPipelineImpl:
             out.append(s)
         return out
 
-    def _faq_short_circuit(self, intent, docs: list[str]) -> AnswerResult | None:
-        """문서 미선택 FAQ/보험료 → 큐레이션 문장으로 즉시 응답."""
-        if docs:
-            return None
-        return self._faq_curated_answer(intent)
+    # 문서 선택 중에도 개념 안내로 바로 답할 FAQ (면책·대기 일수는 RAG 우선).
+    _CONCEPT_FAQ_IDS = frozenset({
+        "surrender_none",
+        "renewal_vs_nonrenewal",
+        "indemnity_vs_fixed",
+        "how_to_enroll",
+        "what_affects_premium",
+    })
 
-    def _faq_curated_answer(self, intent) -> AnswerResult | None:
+    def _faq_short_circuit(self, intent, docs: list[str]) -> AnswerResult | None:
+        """FAQ/보험료 큐레이션 즉시 응답.
+
+        문서 미선택: FAQ·보험료 전부 허용.
+        문서 선택: 개념 FAQ만 허용(면책·대기 등 상품 조항은 RAG).
+        """
+        if not docs:
+            return self._faq_curated_answer(intent, with_doc_disclaimer=False)
+        faq = getattr(intent, "faq", None)
+        faq_id = getattr(faq, "id", None) if faq is not None else None
+        if intent.label == "common_faq" and faq_id in self._CONCEPT_FAQ_IDS:
+            return self._faq_curated_answer(intent, with_doc_disclaimer=True)
+        return None
+
+    def _faq_curated_answer(
+        self, intent, *, with_doc_disclaimer: bool = False,
+    ) -> AnswerResult | None:
         """문서 유무와 무관하게 FAQ/보험료 큐레이션 답 (임베딩 폴백용)."""
         from harag.query.context_chunks import (
             scored_faq_chunk, scored_premium_chunk,
@@ -280,9 +328,14 @@ class QueryPipelineImpl:
                 abstain_reason=None,
             )
         if intent.faq is not None:
+            extra = (
+                "지금 고른 설명서에 해당하는지는 상품요약서·약관의 "
+                "해당 용어로 확인해 주세요."
+                if with_doc_disclaimer else ""
+            )
             chunk = scored_faq_chunk(intent.faq)
             return AnswerResult(
-                answer=format_faq_answer(intent.faq),
+                answer=format_faq_answer(intent.faq, extra=extra),
                 context_chunks=[chunk],
                 abstained=False,
                 abstain_reason=None,
@@ -385,11 +438,46 @@ class QueryPipelineImpl:
 
         docs = self._doc_ids(document_id, document_ids)
         intent = classify_intent(query, llm=self._intent_llm)
+        # 설명서 추천 질문: facts + LLM 윤문 (soft no-evidence 없음)
+        if docs:
+            from harag.guidance.brochure_suggest import (
+                try_brochure_suggest_answer,
+            )
+            from harag.query.context_chunks import (
+                scored_brochure_catalog_chunk,
+            )
+            suggest_llm = self._suggest_llm
+            if suggest_llm is None:
+                suggest_llm = getattr(self._generator, "_llm", None)
+            hit = try_brochure_suggest_answer(
+                query, docs, metadata=self._metadata, llm=suggest_llm)
+            if hit is not None:
+                ans, did = hit
+                tid = current_trace_id() or "local"
+                tr = QueryTrace(tid, query, mask=_query_mask_fn())
+                chunk = scored_brochure_catalog_chunk(
+                    document_id=did, answer=ans)
+                return [], tr, intent, AnswerResult(
+                    answer=ans,
+                    context_chunks=[chunk],
+                    abstained=False,
+                    abstain_reason=None,
+                )
         short = self._faq_short_circuit(intent, docs)
         if short is not None:
             tid = current_trace_id() or "local"
             tr = QueryTrace(tid, query, mask=_query_mask_fn())
             return [], tr, intent, short
+
+        match_ctx = (match_context or "").strip()
+        # 결과 채팅 매칭·연결 질문: PDF RAG 없이 match_context만
+        if match_ctx and is_match_explain_query(query):
+            tid = current_trace_id() or "local"
+            tr = QueryTrace(tid, query, mask=_query_mask_fn())
+            results = prepend_match_context([], match_ctx)
+            results = finalize_context_budget(
+                results, max_tokens=self._context_max_tokens)
+            return results, tr, intent, None
 
         # 면책·대기 등은 상품 조항이 핵심 → 문서 선택 시 RAG 유지 + FAQ 보강
         faq_id = getattr(intent.faq, "id", None) if intent.faq else None
@@ -403,6 +491,8 @@ class QueryPipelineImpl:
             results = self._build_faq_premium_context(intent, docs)
             results = self._inject_web_if_needed(query, intent, docs, results)
             results = prepend_match_context(results, match_context)
+            results = finalize_context_budget(
+                results, max_tokens=self._context_max_tokens)
             return results, tr, intent, None
 
         try:
@@ -426,6 +516,8 @@ class QueryPipelineImpl:
             ]
         results = self._inject_web_if_needed(query, intent, docs, results)
         results = prepend_match_context(results, match_context)
+        results = finalize_context_budget(
+            results, max_tokens=self._context_max_tokens)
         return results, tr, intent, None
 
     def _retrieve_sync(self, query: str, auth: AuthContext,
@@ -782,7 +874,7 @@ class QueryPipelineImpl:
         cited_list = extract_cited_ids(answer_text, ctx_ids)
         # 스트림 종료 후 OutputGuard (canary·위조 인용·no_evidence·인용 필수)
         guarded = self._generator.validate_output(
-            answer_text, cited_list, ctx_ids)
+            answer_text, cited_list, ctx_ids, query=query)
         if guarded.abstained or guarded.answer is None:
             reason = guarded.abstain_reason or "no_answer"
             if reason == "injection_canary_leak":

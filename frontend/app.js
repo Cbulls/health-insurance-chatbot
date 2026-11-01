@@ -335,7 +335,7 @@ async function uploadFile(file) {
     await refreshDocs();
     pollDoc(data.document_id);
   } catch (err) {
-    toast("업로드 실패: " + err.message);
+    toast("파일을 올리지 못했어요. 잠시 후 다시 시도해 주세요.");
   } finally {
     setUploading(false);
     updateComposerGate();
@@ -527,7 +527,7 @@ createCollectionBtn.addEventListener("click", async () => {
     await refreshDocs();
     if (uploadTarget) uploadTarget.value = "lib:" + c.id;
   } catch (err) {
-    toast("컬렉션 생성 실패: " + err.message);
+    toast("목록을 만들지 못했어요. 잠시 후 다시 시도해 주세요.");
   }
 });
 
@@ -547,7 +547,7 @@ async function deleteDoc(id, filename) {
     toast(`삭제됨: ${filename || id}`);
     refreshDocs();
   } catch (err) {
-    toast("삭제 실패: " + err.message);
+    toast("삭제하지 못했어요. 잠시 후 다시 시도해 주세요.");
   }
 }
 
@@ -716,11 +716,11 @@ async function streamAnswer(query) {
         bubble.classList.remove("thinking");
         bubble.classList.add("abstain");
         answer = "";
-        bubble.textContent = abstainMessage(evt.data);
+        bubble.textContent = abstainMessage(evt.data, query);
       } else if (evt.kind === "abstain") {
         bubble.classList.remove("thinking");
         bubble.classList.add("abstain");
-        bubble.textContent = abstainMessage(evt.data);
+        bubble.textContent = abstainMessage(evt.data, query);
       } else if (evt.kind === "error") {
         bubble.classList.remove("thinking");
         bubble.classList.add("abstain");
@@ -742,7 +742,8 @@ async function streamAnswer(query) {
     } else {
       bubble.classList.remove("thinking");
       bubble.classList.add("abstain");
-      bubble.textContent = "오류가 발생했습니다: " + err.message;
+      bubble.textContent =
+        "답변을 가져오지 못했어요. 잠시 후 다시 시도해 주세요.";
     }
   } finally {
     streamAbort = null;
@@ -781,22 +782,44 @@ function httpErrorMessage(status, body, fallback, retryAfterHeader) {
   return fallback;
 }
 
-function abstainMessage(reason) {
-  if (reason === "empty_context" || reason === "low_score"
-      || reason === "no_evidence_in_documents" || reason === "missing_citation")
+function softNoEvidenceKo(query) {
+  const q = String(query || "");
+  if (/해약|환급|미지급/.test(q)) {
     return (
       "이 설명서에서 질문과 바로 맞는 구절을 찾지 못했습니다. "
-      + "날짜·일수 같은 확정 수치는 지어내지 않습니다.\n\n"
-      + "「보험기간」「책임개시」「면책」「대기」처럼 약관 용어로 다시 물어보시면 "
-      + "찾기가 쉽습니다. 예: 책임개시일은 언제인가요? / 면책·대기기간은 며칠인가요?\n\n"
+      + "환급액 같은 확정 수치는 지어내지 않습니다.\n\n"
+      + "「해약환급금」「환급형」「미지급형」처럼 약관 용어로 다시 물어보시면 "
+      + "찾기가 쉽습니다. 예: 이 상품에 해약환급금 조항이 있나요?\n\n"
       + "확정이 필요하면 보험사 고객센터·설계사 상담을 함께 이용해 주세요."
     );
+  }
+  if (/보험료|월납|견적|가격|얼마/.test(q)) {
+    return (
+      "이 설명서만으로 개인 월 보험료를 확정하기 어렵습니다. "
+      + "금액을 지어내지 않습니다.\n\n"
+      + "보험사 가격공시·설계 견적·고객센터·설계사 상담으로 확인해 주세요.\n\n"
+      + "확정이 필요하면 보험사 고객센터·설계사 상담을 함께 이용해 주세요."
+    );
+  }
+  return (
+    "이 설명서에서 질문과 바로 맞는 구절을 찾지 못했습니다. "
+    + "날짜·일수 같은 확정 수치는 지어내지 않습니다.\n\n"
+    + "「보험기간」「책임개시」「면책」「대기」처럼 약관 용어로 다시 물어보시면 "
+    + "찾기가 쉽습니다. 예: 책임개시일은 언제인가요? / 면책·대기기간은 며칠인가요?\n\n"
+    + "확정이 필요하면 보험사 고객센터·설계사 상담을 함께 이용해 주세요."
+  );
+}
+
+function abstainMessage(reason, query) {
+  if (reason === "empty_context" || reason === "low_score"
+      || reason === "no_evidence_in_documents" || reason === "missing_citation")
+    return softNoEvidenceKo(query);
   if ((reason || "").startsWith("fabricated_citation"))
     return "답변 검증에 실패하여 응답을 보류합니다. 질문을 조금 바꿔 다시 시도해 주세요.";
   if (reason === "llm_unavailable")
     return "답변 생성 서비스가 일시적으로 불안정합니다. 잠시 후 다시 시도해 주세요.";
   if (reason === "llm_cost_limit")
-    return "질문이 너무 넓어 한 번에 답하기 어렵습니다. 담보·기간을 좁혀 다시 물어봐 주세요.";
+    return "참고할 내용이 많아 한 번에 다루기 어려웠어요. 담보·상품 이름을 좁혀 다시 물어봐 주세요.";
   if (reason === "embedding_unavailable")
     return (
       "문서 검색 서비스가 일시적으로 불가합니다. "

@@ -8,8 +8,8 @@ from harag.api.ratelimit import enforce_rate_limit
 from harag.api.schemas import (
     AssessRequest, AssessResponse, GuidanceRequest, GuidanceResponse,
     AreaCard, AreaItem, CoverageItem, InsuranceBridge, ProductCard, RefStat,
-    PublicStatsPanel, RecommendationRationale,
-    SymptomCluster, SymptomItem, PurgeRequest, PurgeResponse,
+    PublicStatsPanel, RecommendationRationale, CoveragePriority, CostPattern,
+    ProductMatchMeta, SymptomCluster, SymptomItem, PurgeRequest, PurgeResponse,
 )
 from harag.contracts.boundaries import AuthContext
 
@@ -52,7 +52,11 @@ async def guidance(
     result = get_guidance().guide(
         req.text, occupation=req.occupation, concern=req.concern,
         concerns=req.concerns or None, age_band=req.age_band, sex=req.sex,
-        symptom_codes=req.symptoms or None, auth=auth)
+        symptom_codes=req.symptoms or None,
+        existing_silson=req.existing_silson,
+        care_intensity=req.care_intensity,
+        cost_pain_type=req.cost_pain_type,
+        auth=auth)
     bridge = result.insurance_bridge or {}
     return GuidanceResponse(
         profile=result.profile,
@@ -71,6 +75,13 @@ async def guidance(
         recommendation_rationale=RecommendationRationale(
             **(result.recommendation_rationale or {})
         ) if result.recommendation_rationale else RecommendationRationale(),
+        coverage_priority=CoveragePriority(**(result.coverage_priority or {}))
+        if result.coverage_priority else CoveragePriority(),
+        cost_pattern=CostPattern(**(result.cost_pattern or {}))
+        if result.cost_pattern else CostPattern(),
+        product_match_meta=ProductMatchMeta(
+            **(result.product_match_meta or {})
+        ) if result.product_match_meta else ProductMatchMeta(),
         explanation=result.explanation,
         explanation_why=result.explanation_why,
         explanation_caution=result.explanation_caution,

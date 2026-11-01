@@ -72,7 +72,8 @@ def commonness_from_counts(
         if n < 0:
             continue
         scored.append((key, n))
-    if len(scored) < 2:
+    if len(scored) < 3:
+        # 후보가 너무 적으면 「흔한 편」라벨이 인구 대비처럼 오해됨
         return {
             "label": MISSING,
             "rank": None,
@@ -80,6 +81,7 @@ def commonness_from_counts(
             "detail": "",
             "source": "",
             "missing": True,
+            "reason": "비교 참고군이 적어 흔함 순위를 붙이지 않아요.",
         }
     # 동점이면 kcd 문자열로 안정 정렬
     scored.sort(key=lambda x: (-x[1], x[0]))
@@ -98,8 +100,9 @@ def commonness_from_counts(
         label = "드문 편"
     who = " · ".join(x for x in (age_band or "", sex or "") if x).strip()
     detail = (
-        f"참고 질환군 {n}개 안 {rank}/{n}"
+        f"이 안내가 고른 참고군 {n}개 안 상대 {rank}/{n}"
         + (f" ({who})" if who else "")
+        + " · 전체 인구·전체 상병 대비가 아님"
     )
     return {
         "label": label,
@@ -108,4 +111,5 @@ def commonness_from_counts(
         "detail": detail,
         "source": "건강보험심사평가원 질병정보서비스",
         "missing": False,
+        "reason": "",
     }

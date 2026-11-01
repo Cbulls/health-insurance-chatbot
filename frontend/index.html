@@ -140,7 +140,7 @@
         <button type="button" class="chip" data-occ="care_health">의료·돌봄</button>
         <button type="button" class="chip" data-occ="education">교육·연구</button>
         <button type="button" class="chip" data-occ="homemaker">가사·육아(무급)</button>
-        <button type="button" class="chip" data-occ="retired">은퇴·무직</button>
+        <button type="button" class="chip" data-occ="retired">무직·취업준비</button>
         <button type="button" class="chip" data-occ="student">학생</button>
         <button type="button" class="chip" data-occ="other">기타</button>
       </div>
@@ -152,6 +152,34 @@
         <button type="button" class="chip" data-concern="inpatient">입원·수술 비용</button>
         <button type="button" class="chip" data-concern="tests">장기 치료</button>
         <button type="button" class="chip" data-concern="none">잘 모르겠음</button>
+      </div>
+
+      <div id="careSlotBlock" class="care-slot-block hidden">
+        <h2 class="group-title">병원비 안내를 더 맞추려면 <span class="opt">(선택)</span></h2>
+        <p class="muted">이름·연락처는 받지 않습니다. 고르지 않아도 안내를 받을 수 있어요.</p>
+
+        <p class="slot-q">실손의료비보험이 있나요?</p>
+        <div class="chip-row" id="silsonRow">
+          <button type="button" class="chip" data-silson="yes">있음</button>
+          <button type="button" class="chip" data-silson="no">없음</button>
+          <button type="button" class="chip" data-silson="unknown">모름</button>
+        </div>
+
+        <p class="slot-q">최근 1년 외래·검사는?</p>
+        <div class="chip-row" id="intensityRow">
+          <button type="button" class="chip" data-intensity="rare">거의 안 감</button>
+          <button type="button" class="chip" data-intensity="sometimes">가끔</button>
+          <button type="button" class="chip" data-intensity="frequent">자주</button>
+          <button type="button" class="chip" data-intensity="unknown">모름</button>
+        </div>
+
+        <p class="slot-q">부담이 큰 쪽은?</p>
+        <div class="chip-row" id="painRow">
+          <button type="button" class="chip" data-pain="outpatient">외래 진료비</button>
+          <button type="button" class="chip" data-pain="tests_noncovered">검사·비급여</button>
+          <button type="button" class="chip" data-pain="inpatient">입원·수술</button>
+          <button type="button" class="chip" data-pain="unknown">잘 모름</button>
+        </div>
       </div>
 
       <div class="wizard-nav">

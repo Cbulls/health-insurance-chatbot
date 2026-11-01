@@ -64,12 +64,14 @@ def test_guide_attaches_kosis_without_live_http(monkeypatch):
     assert g.kosis
     care = (g.kosis.get("care_context") or {})
     assert care.get("missing") is False
-    assert any(
-        (c.get("care_context") or {}).get("missing") is False
-        for c in g.area_cards
-    )
+    # care/surgery는 카드가 아니라 cost_pattern·kosis에만
+    assert all(not c.get("care_context") for c in g.area_cards)
+    assert all(not c.get("surgery_context") for c in g.area_cards)
+    cp = g.cost_pattern or {}
+    assert cp.get("lines")
+    assert any("진료" in (ln.get("title") or "") or "입원" in (ln.get("title") or "")
+               for ln in cp["lines"])
     ms = next(c for c in g.area_cards if c["id"] == "musculoskeletal_motion")
-    assert (ms.get("surgery_context") or {}).get("missing") is False
     occ = ms.get("occupation_factor") or {}
     assert occ.get("missing") is False
     assert occ.get("claims_not_incidence") is True
@@ -80,6 +82,9 @@ def test_guide_attaches_kosis_without_live_http(monkeypatch):
     assert cost.get("missing") is False
     blob = " ".join(bridge.get("paragraphs") or [])
     assert "확률" not in blob
+    # 20대에는 슬관절 치환 미연결
+    surg = g.kosis.get("surgery_nhi") or {}
+    assert "슬관절 치환" not in str(surg)
 
 
 def test_bundle_source_attribution():

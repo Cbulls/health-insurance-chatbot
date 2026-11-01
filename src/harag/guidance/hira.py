@@ -187,8 +187,9 @@ class HiraStats:
         except (TypeError, ValueError):
             total_i = None
         note = str(data.get("note") or "").strip()
-        if live is None and not note:
-            note = "저장본. 시연용 참고 규모이며 실시간 공식 수치가 아님."
+        # 시연·저장본 고지는 사용자 화면에 노출하지 않음
+        if "시연용" in note or "저장본" in note or "실시간 공식" in note:
+            note = ""
         # KB 큐레이션 한글명이 있으면 캐시/라이브 표기보다 우선한다.
         disp = str(cond.get("name") or "").strip()
         if disp and disp != str(cond.get("kcd") or "").strip():

@@ -1,6 +1,7 @@
 """공용 설명서 PDF — demo_pdfs 폴백, 경로 탈출 거부."""
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 
 from harag.api.document_file import (
@@ -152,3 +153,64 @@ def test_object_store_wins_over_demo(tmp_path):
         document_id="doc1", filename="brochure.pdf", scope="library")
     opened = open_document_pdf(meta, ingest=ingest, demo_dir=tmp_path)
     assert opened == b"%PDF-1.4 store"
+
+
+def test_open_library_pdf_by_content_hash_when_filename_wrong(tmp_path):
+    """reconcile로 filename이 틀려도 document_id(콘텐츠 해시)로 연다."""
+    import hashlib
+
+    from harag.api.document_file import clear_demo_pdf_index_cache
+
+    clear_demo_pdf_index_cache()
+    raw = b"%PDF-1.4 hash-resolve"
+    path = tmp_path / "real_brochure.pdf"
+    path.write_bytes(raw)
+    doc_id = hashlib.sha256(raw).hexdigest()[:32]
+    meta = SimpleNamespace(
+        document_id=doc_id,
+        filename=f"{doc_id}.pdf",  # 잘못된 메타 filename
+        scope="library",
+    )
+    opened = open_document_pdf(meta, demo_dir=tmp_path)
+    assert opened is not None
+    assert Path(opened).read_bytes() == raw
+    assert document_has_file(meta, demo_dir=tmp_path)
+
+
+def test_file_route_hash_resolve_200(tmp_path, monkeypatch):
+    import hashlib
+
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from harag.api.acl_helpers import LIB_TAG
+    from harag.api.auth import require_auth
+    from harag.api.document_file import clear_demo_pdf_index_cache
+    from harag.api.routes_ingest import router
+    from harag.contracts.boundaries import AuthContext
+
+    clear_demo_pdf_index_cache()
+    raw = b"%PDF-1.4 route-hash"
+    (tmp_path / "actual.pdf").write_bytes(raw)
+    doc_id = hashlib.sha256(raw).hexdigest()[:32]
+    rec = SimpleNamespace(
+        document_id=doc_id, filename="wrong_name.pdf", scope="library")
+
+    class _Meta:
+        def find_accessible(self, *a, **k):
+            return rec
+
+    class _Ingest:
+        _metadata = _Meta()
+
+    monkeypatch.setattr("harag.api.deps.get_ingest", lambda: _Ingest())
+    monkeypatch.setattr(
+        "harag.api.document_file.default_demo_dir", lambda: tmp_path)
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[require_auth] = lambda: AuthContext(
+        user_id="u", acl_tags=frozenset({LIB_TAG, "owner:u"}))
+    client = TestClient(app)
+    res = client.get(f"/v1/documents/{doc_id}/file")
+    assert res.status_code == 200
+    assert res.content == raw

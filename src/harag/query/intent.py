@@ -27,7 +27,7 @@ _ENROLL_RE = re.compile(
 )
 _FAQISH_IDS = frozenset({
     "how_to_enroll", "what_affects_premium", "renewal_vs_nonrenewal",
-    "indemnity_vs_fixed", "waiting_period_general",
+    "indemnity_vs_fixed", "waiting_period_general", "surrender_none",
 })
 
 

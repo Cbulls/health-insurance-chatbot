@@ -73,6 +73,50 @@ AREA_SURGERY_LINKS = {
     ],
 }
 
+# 중증·고령 친화 항목 — 최소 연령대 미만이면 미노출 (의료 draft).
+_AGE_RANK = {
+    "0-4": 0, "5-9": 1, "0-9": 1, "10-19": 2, "20-29": 3, "30-39": 4,
+    "40-49": 5, "50-59": 6, "60-69": 7, "70-79": 8, "80+": 9, "70+": 8,
+}
+DISEASE_298_MIN_AGE = {
+    "급성심근경색증": "40-49",
+    "기타고혈압성질환": "30-39",
+}
+SURGERY_MIN_AGE = {
+    "슬관절 치환술": "50-59",
+    "일반 척추수술": "40-49",
+    "내시경하 척추수술": "40-49",
+}
+
+
+def _age_ok(age_band: str | None, min_band: str | None) -> bool:
+    if not min_band:
+        return True
+    if not age_band:
+        return False  # 연령 없으면 중증 게이트 항목은 숨김
+    return _AGE_RANK.get(age_band, -1) >= _AGE_RANK.get(min_band, 99)
+
+
+def filter_diseases_for_age(
+        names: list[str], age_band: str | None) -> list[str]:
+    out: list[str] = []
+    for n in names:
+        need = DISEASE_298_MIN_AGE.get(n)
+        if _age_ok(age_band, need):
+            out.append(n)
+    return out
+
+
+def filter_surgeries_for_age(
+        names: list[str], age_band: str | None) -> list[str]:
+    out: list[str] = []
+    for n in names:
+        need = SURGERY_MIN_AGE.get(n)
+        if _age_ok(age_band, need):
+            out.append(n)
+    return out
+
+
 # 영역 → 298 질병분류명 (근사). HIRA KCD와 별개 보조 슬롯.
 AREA_DISEASE_298 = {
     "head_neuro": ["편두통및기타두통증후군", "기타신경계의질환"],
@@ -80,7 +124,8 @@ AREA_DISEASE_298 = {
     "balance_metabolic": ["당뇨병", "비만", "기타비타민결핍증"],
     # 닫힌 298 목록 내 최근접(소화·배설 전용 항목 없음) — UI에 근사·한계 고지
     "gi_urine_stool": ["당뇨병", "비만"],
-    "cardio_resp": ["급성심근경색증", "기타고혈압성질환", "폐렴"],
+    # AMI는 연령 게이트(40+)로만 노출. 젊은 층은 폐렴 등만.
+    "cardio_resp": ["폐렴", "기타고혈압성질환", "급성심근경색증"],
 }
 
 ITM_A0611_PERSONS = "진료실인원"
@@ -773,7 +818,8 @@ def surgery_context_for(
         area_ids: list[str],
         sex: str | None,
         *,
-        scheme: str = "health_insurance") -> dict[str, Any]:
+        scheme: str = "health_insurance",
+        age_band: str | None = None) -> dict[str, Any]:
     """닫힌 수술 매핑 → 평균 입원일·비용 밴드. A001 기본, A002는 medical_aid."""
     tbl = TBL_A001 if scheme == "health_insurance" else TBL_A002
     missing = {
@@ -795,8 +841,13 @@ def surgery_context_for(
         for n in AREA_SURGERY_LINKS.get(aid) or []:
             if n not in names:
                 names.append(n)
+    names = filter_surgeries_for_age(names, age_band)
     if not names:
-        return {**missing, "detail": "연결된 참고 수술이 없습니다."}
+        return {
+            **missing,
+            "detail": "이 연령대에 연결한 참고 수술이 없습니다.",
+            "reason": "이 연령대에 연결한 참고 수술이 없습니다.",
+        }
 
     picked: list[dict] = []
     for name in names:
@@ -870,7 +921,7 @@ _AREA_DISEASE_298_SOFT_NOTE = {
         "소화·배설 전용 298 항목이 없어 대사 질환(당뇨·비만)으로 근사 연결합니다."
     ),
     "cardio_resp": (
-        "호흡·순환 증상을 심근경색·고혈압·폐렴 급여 통계에 근사 연결합니다."
+        "호흡·순환 참고 영역을 폐렴·혈압 관련 급여 통계에 근사 연결합니다."
     ),
 }
 
@@ -892,12 +943,13 @@ def disease_298_context_for(
         "match": "approx",
         "reason": "",
     }
-    diseases = AREA_DISEASE_298.get(area_id or "") or []
+    raw_diseases = AREA_DISEASE_298.get(area_id or "") or []
+    diseases = filter_diseases_for_age(list(raw_diseases), age_band)
     if not diseases:
         return {
             **missing,
-            "reason": "이 영역에 연결한 298 질병분류가 없습니다.",
-            "detail": "이 영역에 연결한 298 질병분류가 없습니다.",
+            "reason": "이 연령대·영역에 연결한 질병분류가 없습니다.",
+            "detail": "이 연령대·영역에 연결한 질병분류가 없습니다.",
         }
     cache = load_table_cache(TBL_A0611)
     if not cache:
@@ -951,10 +1003,11 @@ def disease_298_context_for(
         band = "해당 연령대에서 입원·외래가 섞인 편"
     else:
         band = "해당 연령대에서 입원 비중이 큰 편"
-    age_ui = age_ui_label(age_band)
+    age_ui = age_ui_label(age_band) or "해당 연령대"
+    # A0611은 연령만 집계 — 성별 미반영을 명시
     note = (
         "298 질병분류 급여 통계이며 KCD 확진·유병이 아닙니다. "
-        f"수록 연도({year})·근사 연결을 확인하세요."
+        f"{age_ui} 전체(성별 미구분) · 수록 연도({year})·근사 연결을 확인하세요."
     )
     if soft:
         note = f"{note} {soft}"
@@ -962,7 +1015,7 @@ def disease_298_context_for(
         "missing": False,
         "label": f"{picked_name} — {band}",
         "detail": (
-            f"{age_ui} 진료실인원 기준 입원 비중 약 {share:.1f}% "
+            f"{age_ui} 전체 진료실인원 기준 입원 비중 약 {share:.1f}% "
             f"(입원 {int(round(in_n)):,} · 외래 {int(round(out_n)):,})"
         ),
         "source": f"{SOURCE}, {year}",
@@ -984,9 +1037,9 @@ def build_kosis_bundle(
     """결과 API용 묶음 — guide()에서 HTTP 없음."""
     care = care_context_for(age_band, sex)
     nhi_surg = surgery_context_for(
-        area_ids, sex, scheme="health_insurance")
+        area_ids, sex, scheme="health_insurance", age_band=age_band)
     aid_surg = surgery_context_for(
-        area_ids, sex, scheme="medical_aid")
+        area_ids, sex, scheme="medical_aid", age_band=age_band)
     cost = cost_bracket_context_for(age_band)
     by_area = {
         aid: disease_298_context_for(aid, age_band)

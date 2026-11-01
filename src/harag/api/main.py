@@ -263,6 +263,10 @@ def _build_and_inject() -> None:
         planner=web_planner,
     )
 
+    from harag.guidance.hira import HiraStats
+    from harag.guidance.service import GuidanceService
+    from harag.llm.local_llm import LocalExtractiveLLM
+    guide_llm = None if isinstance(llm, LocalExtractiveLLM) else llm
     pipeline = QueryPipelineImpl(
         retriever=store, generator=generator,
         reranker=reranker, rewriter=rewriter,
@@ -274,12 +278,9 @@ def _build_and_inject() -> None:
         metadata=metadata,
         web_browser=web_browser,
         intent_llm=intent_llm,
+        suggest_llm=guide_llm,
         min_score=settings.min_score,
     )
-    from harag.guidance.hira import HiraStats
-    from harag.guidance.service import GuidanceService
-    from harag.llm.local_llm import LocalExtractiveLLM
-    guide_llm = None if isinstance(llm, LocalExtractiveLLM) else llm
     ingest = InProcessIngest(
         parser=DocumentParser(), chunker=StructuralChunker(),
         embedder=embedder, store=store, metadata=metadata,

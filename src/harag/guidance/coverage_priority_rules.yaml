@@ -1,0 +1,161 @@
+{
+  "version": 1,
+  "meta": {
+    "clinical_review": "draft",
+    "insurance_review": "draft",
+    "notes": "임계값·순위는 일반론 초안. 상품 약관·인수 기준이 우선. 개인 발병 확률·가입 권유 문장 금지.",
+    "selection_basis_default": "걱정 일치 > 치료 패턴 > 직군 상해"
+  },
+  "thresholds": {
+    "inpatient_share_high": 0.15,
+    "inpatient_share_outpatient_max": 0.08
+  },
+  "cap": 3,
+  "dedupe": "by_axis_nature",
+  "axes": ["outpatient", "inpatient", "tests", "injury", "surgery"],
+  "natures": ["indemnity", "lump_sum", "either"],
+  "display_titles": {
+    "outpatient|indemnity": "실손 통원",
+    "outpatient|lump_sum": "정액 통원·외래",
+    "outpatient|either": "통원 보장(실손·정액)",
+    "inpatient|indemnity": "실손 입원",
+    "inpatient|lump_sum": "정액 입원일당",
+    "inpatient|either": "입원 보장(실손·정액)",
+    "tests|indemnity": "실손 검사",
+    "tests|lump_sum": "정액 진단비",
+    "tests|either": "검사·진단 보장",
+    "injury|indemnity": "상해 관련 실손",
+    "injury|lump_sum": "상해 정액",
+    "injury|either": "상해 보장",
+    "surgery|indemnity": "실손 입원(수술 포함 점검)",
+    "surgery|lump_sum": "정액 수술비",
+    "surgery|either": "수술 보장"
+  },
+  "care_pattern_labels": {
+    "outpatient_heavy": "대부분 외래 중심",
+    "mixed": "입원·외래가 섞인 편",
+    "inpatient_heavy": "입원 비중을 함께 볼 필요",
+    "unknown": "치료 패턴 미확인"
+  },
+  "rules": [
+    {
+      "id": "concern_inpatient_primary",
+      "enabled": true,
+      "when": {
+        "concerns_any": ["inpatient"]
+      },
+      "emit": {
+        "axis": "inpatient",
+        "nature": "indemnity",
+        "priority_weight": 100,
+        "reason": "걱정하신 {concern_label}에 직접 대응하는 보장이라 먼저 점검해요{inpatient_share_clause}.",
+        "check_points": [
+          "이미 가입한 실손 입원 한도·자기부담을 먼저 확인하세요",
+          "실제 부담 의료비 보전 구조인지 상품요약서에서 확인하세요"
+        ],
+        "requires_stats": false
+      }
+    },
+    {
+      "id": "concern_inpatient_surgery_lump",
+      "enabled": true,
+      "when": {
+        "concerns_any": ["inpatient"]
+      },
+      "emit": {
+        "axis": "surgery",
+        "nature": "lump_sum",
+        "priority_weight": 90,
+        "reason": "수술 비용 걱정이 있어, 실손과 별개인 정액 수술비를 함께 점검해요.",
+        "check_points": [
+          "수술 분류·제외 항목은 상품마다 다릅니다 (요약서·약관)"
+        ],
+        "requires_stats": false
+      }
+    },
+    {
+      "id": "concern_outpatient",
+      "enabled": true,
+      "when": {
+        "concerns_any": ["outpatient"]
+      },
+      "emit": {
+        "axis": "outpatient",
+        "nature": "indemnity",
+        "priority_weight": 95,
+        "reason": "걱정하신 {concern_label}에 맞춰 실손 통원부터 점검해요.",
+        "check_points": [
+          "통원 한도·자기부담·기존 실손 중복 여부를 확인하세요"
+        ],
+        "requires_stats": false
+      }
+    },
+    {
+      "id": "concern_tests_long",
+      "enabled": true,
+      "when": {
+        "concerns_any": ["tests"]
+      },
+      "emit": {
+        "axis": "tests",
+        "nature": "either",
+        "priority_weight": 88,
+        "reason": "장기 치료·검사 걱정이 있어 검사·진단 축과 갱신 구조를 함께 보세요.",
+        "check_points": [
+          "갱신 시 보험료 변화·해약환급금 유무를 확인하세요",
+          "정액 진단비가 있는지는 상품요약서에서 확인하세요"
+        ],
+        "requires_stats": false
+      }
+    },
+    {
+      "id": "pattern_outpatient_heavy",
+      "enabled": true,
+      "when": {
+        "care_pattern_any": ["outpatient_heavy"]
+      },
+      "emit": {
+        "axis": "outpatient",
+        "nature": "indemnity",
+        "priority_weight": 70,
+        "reason": "참고 영역이 {care_pattern_label}이라 통원 한도도 함께 보세요.",
+        "check_points": [
+          "통원 한도·자기부담·기존 실손 중복 여부를 확인하세요"
+        ],
+        "requires_stats": true
+      }
+    },
+    {
+      "id": "occupation_field_injury",
+      "enabled": true,
+      "when": {
+        "occupation_risk_any": ["field_like"]
+      },
+      "emit": {
+        "axis": "injury",
+        "nature": "either",
+        "priority_weight": 60,
+        "reason": "{occupation_label}이면 상해 축과 직업 고지 여부를 함께 점검해요.",
+        "check_points": [
+          "업무 중 사고는 산재가 먼저 적용될 수 있어요 (사례별 확인)"
+        ],
+        "requires_stats": false
+      }
+    },
+    {
+      "id": "fallback_outpatient",
+      "enabled": true,
+      "when": {
+        "always_if_no_concern": true
+      },
+      "emit": {
+        "axis": "outpatient",
+        "nature": "indemnity",
+        "priority_weight": 40,
+        "reason": "고른 걱정이 없어,  orth 기본으로 실손 통원 점검을 안내해요.",
+        "check_points": [],
+        "requires_stats": false
+      }
+    }
+  ]
+}
