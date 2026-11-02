@@ -21,6 +21,17 @@ _DOC_MARKER_RE = re.compile(
 )
 
 
+def _i_ga(word: str) -> str:
+    """주격 조사: 받침 있으면 '이', 없으면 '가'(한글 아니면 '이')."""
+    w = (word or "").strip()
+    if not w:
+        return "이"
+    code = ord(w[-1])
+    if 0xAC00 <= code <= 0xD7A3:
+        return "이" if (code - 0xAC00) % 28 else "가"
+    return "이"
+
+
 def fit_reasons_fallback(
         product: dict,
         rules: RuleResult,
@@ -74,18 +85,30 @@ def fit_reasons_fallback(
     cond_bit = "·".join(cond_bits) if cond_bits else "입력하신 상황"
 
     symptom_text = (
-        f"{symptom_bit}과 연결해 볼 수 있는 {match_bit}이 "
+        f"{symptom_bit}과 연결해 볼 수 있는 {match_bit}{_i_ga(match_bit)} "
         f"{name} 요약서에 안내되어 있어요."
     )
-    concern_text = (
-        f"걱정 「{concern_bit}」에 맞춰 {nature} 성격의 보장을 "
-        f"이 요약서에서 함께 점검할 수 있어요."
-    )
-    if summary_hint and "실손" in summary_hint:
+    if clabs:
         concern_text = (
-            f"걱정 「{concern_bit}」과 관련해, 요약서에 "
-            f"「{summary_hint}」로 안내되어 있어요."
+            f"걱정 「{concern_bit}」에 맞춰 {nature} 성격의 보장을 "
+            f"이 요약서에서 함께 점검할 수 있어요."
         )
+        if summary_hint and "실손" in summary_hint:
+            concern_text = (
+                f"걱정 「{concern_bit}」과 관련해, 요약서에 "
+                f"「{summary_hint}」로 안내되어 있어요."
+            )
+    else:
+        # 걱정 미선택 — placeholder 「선택하신 걱정」 노출 방지
+        concern_text = (
+            f"따로 고른 걱정이 없어 {nature} 성격의 보장을 기본으로 "
+            f"이 요약서에서 점검할 수 있어요."
+        )
+        if summary_hint and "실손" in summary_hint:
+            concern_text = (
+                f"요약서에 「{summary_hint}」로 안내되어 있어 "
+                f"병원비 부담 관점에서 함께 볼 수 있어요."
+            )
     condition_text = (
         f"{cond_bit}을 참고해 고지·특약 구성을 요약서 기준으로 "
         f"비교해 볼 수 있어요. 가입 가능 여부는 약관·상담이 우선입니다."

@@ -224,3 +224,38 @@ def test_products_attach_catalog_profile():
     assert g.products[0]["source_url"] == "https://www.kbinsure.co.kr/CG802030002.ec"
     assert g.products[0]["snippet"] == ""
     assert "구구구구" not in (g.products[0].get("summary") or "")
+
+
+def test_catalog_kyobo_rafle_upsert():
+    meta = MetadataStore(dsn="sqlite:///:memory:")
+    name = "교보생명_교보라플맞춤건강종합보험_해약환급금미지급형_상품요약서.pdf"
+    assert upsert_catalog_profile(meta, "doc-kyobo", "library", name)
+    rec = meta.get_brochure_profile("doc-kyobo", "library")
+    assert rec.product_line == "health"
+    assert rec.cost_nature == "lump_sum"
+    assert rec.doc_kind == "summary"
+    assert rec.display_name == "교보라플 맞춤건강종합보험"
+    assert rec.insurer == "교보생명"
+    assert rec.source_url == "https://www.kyobo.com"
+    assert set(rec.coverage_codes) == {"inpatient", "tests", "injury"}
+    assert "해약환급금" in rec.summary
+    assert "간편" in rec.summary
+    assert "상품요약서입니다" not in rec.summary
+    assert rec.summary.startswith("온라인 전용")
+
+
+def test_catalog_lina_the_simple_upsert():
+    meta = MetadataStore(dsn="sqlite:///:memory:")
+    name = "라이나생명_THE간편한건강보험_해약환급금미지급형갱신형_상품요약서.pdf"
+    assert upsert_catalog_profile(meta, "doc-lina", "library", name)
+    rec = meta.get_brochure_profile("doc-lina", "library")
+    assert rec.product_line == "health"
+    assert rec.cost_nature == "lump_sum"
+    assert rec.doc_kind == "summary"
+    assert rec.display_name == "THE 간편한건강보험"
+    assert rec.insurer == "라이나생명"
+    assert rec.source_url == "https://www.lina.co.kr"
+    assert set(rec.coverage_codes) == {"tests", "outpatient"}
+    assert "뇌출혈" in rec.summary
+    assert "해약환급금" in rec.summary
+    assert "상품요약서입니다" not in rec.summary

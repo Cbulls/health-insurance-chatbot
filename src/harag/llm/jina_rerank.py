@@ -6,6 +6,7 @@ import logging
 import httpx
 
 from harag.llm.http_rerank import normalize_scores
+from harag.retrieval.reranker import RerankUnavailable
 
 logger = logging.getLogger("harag.rerank.jina")
 
@@ -45,16 +46,19 @@ class JinaCrossEncoder:
             resp = self._client.post("/rerank", json=body)
             resp.raise_for_status()
             data = resp.json()
-        except Exception:  # noqa: BLE001
-            logger.exception("jina rerank failed")
-            return [0.0] * len(texts)
+        except Exception as e:  # noqa: BLE001
+            # 0점 배열을 돌려주면 min_score 필터가 후보를 전부 지워
+            # 빈 컨텍스트가 되므로, 장애는 예외로 알려 retrieval 폴백을 유도.
+            logger.warning("jina rerank failed: %s: %s",
+                           type(e).__name__, str(e)[:160])
+            raise RerankUnavailable(f"jina rerank {type(e).__name__}") from e
 
         results = data.get("results")
         if results is None and isinstance(data.get("data"), list):
             results = data["data"]
         if not isinstance(results, list):
             logger.warning("jina rerank unexpected payload keys=%s", list(data)[:8])
-            return [0.0] * len(texts)
+            raise RerankUnavailable("jina rerank unexpected payload")
 
         scores = [0.0] * len(texts)
         for item in results:

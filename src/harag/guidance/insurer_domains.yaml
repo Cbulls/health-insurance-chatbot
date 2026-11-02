@@ -30,5 +30,13 @@
   "NH농협생명": {
     "hosts": ["www.nhlife.co.kr", "nhlife.co.kr"],
     "homepage": "https://www.nhlife.co.kr"
+  },
+  "교보생명": {
+    "hosts": ["www.kyobo.com", "kyobo.com"],
+    "homepage": "https://www.kyobo.com"
+  },
+  "라이나생명": {
+    "hosts": ["www.lina.co.kr", "lina.co.kr"],
+    "homepage": "https://www.lina.co.kr"
   }
 }

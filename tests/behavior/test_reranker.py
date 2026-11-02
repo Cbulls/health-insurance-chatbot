@@ -104,6 +104,42 @@ def test_RR_empty_input():
     assert _reranker().rerank("q", []) == []
 
 
+def test_RR05_unavailable_keeps_retrieval_order():
+    """외부 리랭커 장애(403 잔액 소진 등) → 0점으로 전부 지우지 않고
+    retrieval 순위 top-N을 그대로 돌려준다(빈 컨텍스트 회피 방지)."""
+    from harag.retrieval.reranker import RerankUnavailable
+
+    class DownCE:
+        def score_pairs(self, query, texts):
+            raise RerankUnavailable("403 insufficient balance")
+
+    r = CrossEncoderReranker(model=DownCE(), top_n=2, min_score=0.15)
+    out = r.rerank("출장비", [
+        _sc("low", "무관", 0.3),
+        _sc("hi", "출장비 한도", 0.9),
+        _sc("mid", "출장비", 0.6),
+    ])
+    assert [s.chunk.meta.chunk_id for s in out] == ["hi", "mid"]
+    assert out[0].score == 0.9
+
+
+def test_jina_adapter_raises_unavailable_on_http_error():
+    """Jina 어댑터는 실패를 0점 배열이 아니라 RerankUnavailable로 알린다."""
+    import httpx
+
+    from harag.llm.jina_rerank import JinaCrossEncoder
+    from harag.retrieval.reranker import RerankUnavailable
+
+    def handler(request):
+        return httpx.Response(403, json={"detail": "insufficient balance"})
+
+    ce = JinaCrossEncoder(api_base="https://x.test/v1", api_key="k")
+    ce._client = httpx.Client(
+        base_url="https://x.test/v1", transport=httpx.MockTransport(handler))
+    with pytest.raises(RerankUnavailable):
+        ce.score_pairs("q", ["a", "b"])
+
+
 if __name__ == "__main__":
     import sys
     sys.exit(pytest.main([__file__, "-v"]))

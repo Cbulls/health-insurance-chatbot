@@ -384,8 +384,9 @@ class GuidanceService:
         ]
         product_clause = (
             "## 비교할 상품 2개 섹션에서는 사실에 적힌 상품만 이름으로 언급하고, "
-            "상품마다 1~2문장으로 「**{상품명}**은 {matched 담보}이 매치되며, "
-            "{summary 핵심}입니다」 패턴으로 적어라. "
+            "상품마다 1~2문장으로 「**{상품명}**: {matched 담보} 보장이 매치되며, "
+            "{summary 핵심}입니다」 패턴으로 적어라(담보 뒤에 '이/가'를 직접 붙이지 "
+            "말고 항상 '보장이'로 끝내라). "
             "상품명은 반드시 **굵게**(마크다운 **이름**) 감싸라. "
             "상품 문단과 다음 상품 문단 사이에는 빈 줄을 하나 넣어라. "
             "왜 골랐는지가 한눈에 들어오게, 전문 용어·가입 권유 없이 쉽게 써라. "
@@ -595,9 +596,12 @@ def _coverage_fallback_snippet(coverages: list[CoverageHit]) -> str:
 def _fill_library_products(
         pipeline, products: list[dict],
         coverages: list[CoverageHit]) -> list[dict]:
-    """검색에 없던 공용 ready 행을 후보로 채운다. 검색 히트가 우선."""
-    if len(products) >= PRODUCT_CANDIDATE_CAP:
-        return products
+    """검색에 없던 공용 ready 행을 후보로 채운다. 검색 히트가 우선.
+
+    공용 라이브러리는 전부 후보에 넣는다(사다리·fit 점수가 고른다).
+    상한으로 자르면 updated_at 순서상 뒤에 있는 혼합형(실손 특약) 상품이
+    「병원비」 걱정에도 후보에 못 들어 정액 L2만 나오는 문제가 있었다.
+    """
     meta_store = getattr(pipeline, "_metadata", None)
     list_fn = getattr(meta_store, "list_library_documents", None)
     if not callable(list_fn):
@@ -611,8 +615,6 @@ def _fill_library_products(
     snippet = _coverage_fallback_snippet(coverages)
     filled = list(products)
     for rec in rows or []:
-        if len(filled) >= PRODUCT_CANDIDATE_CAP:
-            break
         if getattr(rec, "status", "") != "ready":
             continue
         doc_id = getattr(rec, "document_id", "") or ""
@@ -860,6 +862,19 @@ def _selection_reason_line(
     concern_bit = "·".join(clabs) if clabs else "선택하신 걱정"
     care = care or {}
     sil = care.get("existing_silson") or "unknown"
+
+    if not clabs:
+        # 걱정 미선택: 「선택하신 걱정」 placeholder 대신 증상 기준 문구.
+        if quality == "direct" or tier in ("L0", "L1"):
+            base = "고르신 증상과 맞는 보장 축·상품 성격이라 골랐어요."
+        else:
+            base = (
+                "고르신 증상 기준으로, 보유 요약서 중 보장 축이 "
+                "가장 가까운 유사 후보로 골랐어요."
+            )
+        if sil == "yes":
+            base += " 기존 실손이 있으면 한도·중복을 함께 확인하세요."
+        return base
 
     if quality == "direct" or tier in ("L0", "L1"):
         if "outpatient" in (concerns or []) or "inpatient" in (concerns or []):

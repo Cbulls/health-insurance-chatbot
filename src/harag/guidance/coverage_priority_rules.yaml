@@ -152,7 +152,7 @@
         "axis": "outpatient",
         "nature": "indemnity",
         "priority_weight": 40,
-        "reason": "고른 걱정이 없어,  orth 기본으로 실손 통원 점검을 안내해요.",
+        "reason": "고른 걱정이 없어, 기본으로 실손 통원 점검을 안내해요.",
         "check_points": [],
         "requires_stats": false
       }

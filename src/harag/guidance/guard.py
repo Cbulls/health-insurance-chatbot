@@ -19,7 +19,7 @@ _RISK_CLAIM = re.compile(
     r"(유병률|위험합니다|위험하다고|위험한 증상|위험성|전조 증상|전조입니다"
     r"|반드시 병원)")
 _COMPANY_PRODUCT = re.compile(
-    r"(삼성생명|삼성화재|현대해상|DB손해|KB손해|한화생명|교보생명)\s*\S*보험")
+    r"(삼성생명|삼성화재|현대해상|DB손해|KB손해|한화생명|교보생명|라이나생명)\s*\S*보험")
 # 「추천합니다」단독은 비교 안내용으로 허용. 가입 강요만 차단.
 _SOLICIT = re.compile(r"(가입하세요|가입을 권유|가입을 추천)")
 # 브리프에 남은 상병코드 괄호·필러 제거
@@ -105,9 +105,15 @@ def guard_text(text: str, allowed_coverage_labels: list[str],
             continue
         if label not in allowed:
             stripped = True
-            out = out.replace(label, "[규칙 밖 보장 삭제]")
+            # 내부 표기는 사용자에게 보이지 않게 조용히 지운다.
+            out = out.replace(label, "")
     if stripped:
         flags.append("rule_deviation")
+        out = re.sub(r"\s*,\s*,+", ",", out)
+        out = re.sub(r"[:：]\s*,", ": ", out)
+        out = re.sub(r"^\s*,\s*", "", out)
+        out = re.sub(r"[ \t]{2,}", " ", out)
+        out = out.strip()
 
     masker = masker or PiiMasker()
     masked, report = masker.mask(out)

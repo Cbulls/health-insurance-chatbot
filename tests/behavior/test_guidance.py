@@ -228,6 +228,23 @@ def test_rule_deviation_stripped():
     assert "rule_deviation" in flags
     assert "실손 입원" not in text
     assert "실손 통원" in text
+    assert "규칙 밖" not in text
+    assert "삭제]" not in text
+
+
+def test_rule_deviation_does_not_leave_placeholder_or_orphan_comma():
+    text, flags = guard_text(
+        "뉴라이프건강보험 (KB손해보험): 상해 관련 실손, 실손 입원, 실손 통원, 실손 검사 보장이 매치되며, "
+        "정액 진단·입원 특약과 실손 특약을 함께 구성할 수 있는 종합형 건강보험입니다.",
+        ["실손 입원", "실손 통원", "실손 검사"],
+        catalog_labels=["실손 통원", "실손 입원", "실손 검사", "상해 관련 실손"],
+        keep_phrases=["뉴라이프건강보험", "KB손해보험"],
+    )
+    assert "rule_deviation" in flags
+    assert "상해 관련 실손" not in text
+    assert "규칙 밖" not in text
+    assert ": ," not in text
+    assert "실손 입원, 실손 통원, 실손 검사" in text
 
 
 def test_guide_template_has_overlap_not_age_band():

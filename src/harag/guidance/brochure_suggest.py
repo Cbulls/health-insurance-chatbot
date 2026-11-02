@@ -190,13 +190,16 @@ def _summary_core(summary: str) -> str:
 
 
 def _nature_short(nature_label: str, cost_nature: str) -> str:
-    if cost_nature == "lump_sum" or "정액" in (nature_label or ""):
-        return "정액형"
-    if cost_nature == "indemnity" or "실손" in (nature_label or ""):
-        return "실손형"
-    if cost_nature == "mixed" or "혼합" in (nature_label or ""):
+    # 혼합 라벨("혼합(정액+실손 특약)")에는 '정액'·'실손'이 모두 들어 있으므로
+    # 혼합을 먼저 판정해야 KB 뉴라이프 같은 혼합형이 '정액형'으로 새지 않는다.
+    lab = nature_label or ""
+    if cost_nature == "mixed" or "혼합" in lab:
         return "혼합형(정액+실손 특약)"
-    return (nature_label or "").strip()
+    if cost_nature == "lump_sum" or "정액" in lab:
+        return "정액형"
+    if cost_nature == "indemnity" or "실손" in lab:
+        return "실손형"
+    return lab.strip()
 
 
 def build_suggest_facts(profile: dict, kind: str) -> dict:

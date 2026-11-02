@@ -9,9 +9,21 @@ cross-encoder는 질의-청크 쌍을 함께 보고 관련도를 매겨, dense/s
 """
 from __future__ import annotations
 
+import logging
 from typing import Protocol
 
 from harag.contracts.boundaries import ScoredChunk
+
+logger = logging.getLogger("harag.rerank")
+
+
+class RerankUnavailable(RuntimeError):
+    """외부 리랭커 호출 실패(HTTP 4xx/5xx·타임아웃·잔액 소진 등).
+
+    어댑터가 0점 배열 대신 이 예외를 던지면 CrossEncoderReranker가
+    retrieval 순위로 폴백해, 후보 전부가 min_score에 걸려 빈 컨텍스트가
+    되는 일을 막는다.
+    """
 
 
 class CrossEncoder(Protocol):
@@ -46,7 +58,16 @@ class CrossEncoderReranker:
             pool = sorted(candidates, key=lambda s: s.score, reverse=True)[:cap]
 
         # cross-encoder로 질의-청크 정밀 재채점(한 번의 배치 호출)
-        scores = self._model.score_pairs(query, [s.chunk.text for s in pool])
+        try:
+            scores = self._model.score_pairs(
+                query, [s.chunk.text for s in pool])
+        except RerankUnavailable as e:
+            # 리랭커 장애 → retrieval 점수 순서 유지(필터 없이 top-N).
+            # 정밀도는 낮아져도 "문서에 없다" 오답보다 낫다.
+            logger.warning("reranker unavailable; keeping retrieval order: %s",
+                           str(e)[:120])
+            fallback = sorted(pool, key=lambda s: s.score, reverse=True)
+            return fallback[:self._top_n]
 
         # 새 점수로 ScoredChunk 갱신(선택적 retrieval 점수 블렌드)
         blend = self._blend

@@ -307,8 +307,61 @@ class QueryPipelineImpl:
         faq = getattr(intent, "faq", None)
         faq_id = getattr(faq, "id", None) if faq is not None else None
         if intent.label == "common_faq" and faq_id in self._CONCEPT_FAQ_IDS:
-            return self._faq_curated_answer(intent, with_doc_disclaimer=True)
+            res = self._faq_curated_answer(intent, with_doc_disclaimer=True)
+            if res is not None and res.answer:
+                # 고른 설명서의 카탈로그 사실(실손·정액·혼합, 해약환급·갱신)을
+                # 먼저 말해 "개념만 설명하고 상품은 확인하라"는 회피를 줄인다.
+                lead = self._catalog_fact_lead(faq_id, docs)
+                if lead:
+                    res.answer = f"{lead}\n\n{res.answer}"
+            return res
         return None
+
+    def _catalog_fact_lead(self, faq_id: str | None, docs: list[str]) -> str:
+        """개념 FAQ 앞에 붙일 상품별 한 줄. 카탈로그에 없으면 빈 문자열."""
+        if not docs or not faq_id:
+            return ""
+        try:
+            from harag.guidance.brochure_suggest import (
+                build_suggest_facts, resolve_profile_for_document,
+            )
+            profile = resolve_profile_for_document(
+                str(docs[0]), self._metadata)
+            if not profile:
+                return ""
+            facts = build_suggest_facts(profile, "product_type")
+        except Exception:  # noqa: BLE001
+            logger.info("catalog fact lead skip", exc_info=True)
+            return ""
+        head = str(facts.get("head") or "").strip()
+        if not head:
+            return ""
+        flags = facts.get("flags") or {}
+        if faq_id == "indemnity_vs_fixed":
+            ns = str(facts.get("nature_short") or "").strip()
+            if not ns:
+                return ""
+            return (
+                f"{head} 요약서 기준으로 이 상품은 {ns}으로 안내됩니다."
+                if ns.endswith(("형", ")"))
+                else f"{head} 요약서 기준으로 이 상품은 {ns}로 안내됩니다."
+            )
+        if faq_id == "surrender_none":
+            if flags.get("surrender_none"):
+                return (f"{head} 요약서에는 해약환급금 미지급형 안내가 있어 "
+                        "중도 해지 시 환급이 없을 수 있습니다.")
+            if flags.get("surrender_low"):
+                return (f"{head} 요약서에는 해약환급·저해약환급 관련 "
+                        "안내가 있습니다.")
+            return ""
+        if faq_id == "renewal_vs_nonrenewal":
+            if flags.get("non_renewal"):
+                return f"{head} 요약서에는 비갱신형으로 안내된 부분이 있습니다."
+            if flags.get("renewal"):
+                return (f"{head} 요약서에는 갱신형 담보·구조가 안내되어 "
+                        "갱신 때 보험료가 달라질 수 있습니다.")
+            return ""
+        return ""
 
     def _faq_curated_answer(
         self, intent, *, with_doc_disclaimer: bool = False,
